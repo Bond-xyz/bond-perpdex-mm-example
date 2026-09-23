@@ -1,0 +1,18 @@
+{
+  "mode": "offline",
+  "chain_id": 16602,
+  "http_url": "https://perpdex-testnet.bond.xyz",
+  "ws_url": "wss://perpdex-testnet.bond.xyz/ws",
+  "ws_api_url": "wss://perpdex-testnet.bond.xyz/ws-fapi/v1",
+  "allow_live_private": false,
+  "allow_live_orders": false,
+  "symbol": "BTCUSDCPERP",
+  "subaccount": "bond",
+  "quantity": "0.002",
+  "half_spread_bps": 10,
+  "max_position": "0.010",
+  "max_order_notional": "200",
+  "max_open_orders": 2,
+  "max_feed_age_ms": 2000,
+  "credential_placeholder": "SDK ONLY: set BOND_TESTNET_WALLET_KEY through your secret manager, never here"
+}

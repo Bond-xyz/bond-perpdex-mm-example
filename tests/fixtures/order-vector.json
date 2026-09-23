@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "productId": 2,
+  "domain": {
+    "name": "Vertex",
+    "version": "0.0.1",
+    "chainId": 16602,
+    "verifyingContract": "0x1111111111111111111111111111111111111111"
+  },
+  "order": {
+    "sender": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266626f6e640000000000000000",
+    "priceX18": "65000123000000000000000",
+    "amount": "-125000000000000000",
+    "expiration": "1770000000",
+    "nonce": "42"
+  },
+  "signer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "signature": "0x49850181ef022faa0e16ca93e7ebae96fe5d97261e7d8addb976f65594ab9ef72832d19e033bf340979ae757d4ff6ecc5af3e3f20aa9115dad7fda18e72230ae1b",
+  "hashes": {
+    "typeHash": "0x4b5dde172732338a171d63d3b949aacf6bb234046f1395e1986341aad20e7d48",
+    "domainSeparator": "0xff7fb6e2a8021d0e03b47847845c86a974d61421012a0e7d325a04badc2af3c3",
+    "structHash": "0xedd780c103b01fb8ed7ba8e329d023beeb9d6efd869985360412eba9412c1c98",
+    "digest": "0x3b06c29fdfe0ed37fa56f1d19ff00455d94208875197623e95c34538f023be30"
+  }
+}
