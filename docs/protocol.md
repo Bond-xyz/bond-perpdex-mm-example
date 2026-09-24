@@ -33,7 +33,7 @@ a custom network transport `offline=True` circumvents the safety boundary and is
 unsupported. Funding, deposits, transfers, leverage changes, and withdrawals are
 not implemented.
 
-## Explicitly enable the real testnet SDK
+## Explicitly enable the sample client's testnet access
 
 **These snippets make real requests if you run them; none was run during
 development.** Use a separately provisioned, dedicated testnet wallet/subaccount.
@@ -107,7 +107,7 @@ These non-atomic projection reads are conservative checks, not a margin guarante
 Orders can fill before cancellation; a cancel acknowledgement does not undo fills.
 
 An ordinary unrestricted single-cancel response **omits `status` in the current
-source**. The SDK returns that response unchanged and records the UUID in
+source**. The sample client returns that response unchanged and records the UUID in
 `pending_cancellations`; it does not synthesize `CANCELED`. New live submissions
 remain blocked until `query_order(..., order_id=...)` or `reconcile_account()`
 observes a terminal order status (`CANCELED`, `FILLED`, or `EXPIRED`). A temporarily
@@ -173,7 +173,7 @@ validates the subscription ID after the acknowledgement. Actual event variants:
 Execution and position `I` share a process-global counter before account filtering.
 A forward jump may represent other accounts' events, not proven loss on this
 account. A lower/equal value may indicate restart/reset or a duplicate; it is not
-silently dropped. These cases emit reconciliation-required notices. The SDK's
+silently dropped. These cases emit reconciliation-required notices. The sample client's
 `UserStreamMessage` wrapper distinguishes local connection notices from original
 server event dictionaries; it never invents server frames or sequence epochs.
 

@@ -30,6 +30,8 @@ bot-key header signature.
 The scripts are separate so a reader can follow one protocol layer at a time.
 The reusable client lives in `src/bond_perpdex/`; the maker strategy is an
 independent offline demonstration in `python -m bond_perpdex`.
+`bond_perpdex` is this repository's Python import name, not an official
+`bond-sdk` package. The installable project is named `bond-perpdex-mm-example`.
 
 The client code follows the same boundaries: `client_session.py` owns sign-in
 and signed transport, `client_account.py` owns reads and reconciliation,

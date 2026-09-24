@@ -1,4 +1,4 @@
-"""Offline-first SDK seed with explicitly enabled testnet-only private APIs."""
+"""Example BondPerpDEX client with explicitly enabled testnet-only private APIs."""
 
 from .client import BondPerpDexClient
 from .models import (
