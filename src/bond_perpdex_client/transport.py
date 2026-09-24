@@ -140,6 +140,9 @@ class TestnetTransport(TestnetReadOnlyTransport):
                 "/fapi/v1/openOrders",
                 "/fapi/v1/positionRisk",
                 "/fapi/v1/order",
+                "/fapi/v1/account",
+                "/fapi/v1/balance",
+                "/fapi/v1/commissionRate",
             )
         }
         commands = {

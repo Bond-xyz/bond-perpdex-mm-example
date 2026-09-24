@@ -4,8 +4,9 @@ This page answers the four partner questions directly. The Python examples and
 the bot-key, fee, and rate-limit explanations use the pinned `bond-perpdex`
 source revision `34869838ed5588f6a4686f6663e824212287ddb3` (2026-09-23).
 The relevant source files were unchanged on `main` at `09834cbf` (2026-09-24).
-**Source review is not live Galileo testnet verification.** Recheck deployment
-identity and responses before relying on this in production software.
+Source review and the limited live checks below do not establish order admission
+or fill behavior. Recheck deployment identity and responses before relying on
+this in production software.
 
 ## 1. Order signing
 
@@ -149,8 +150,39 @@ for route scope and the current limiter policy.
 The local tests cover the exact source order hash/form vectors, SIWE public
 key encoding, both Ed25519 request schemes, REST request shapes, private
 subscription and event parsing, stale data and unknown command handling. They
-use mocked HTTP/WebSocket transports and block socket/DNS access. No example
-in this repository proves current deployed contract addresses, admission,
-order fills, fee tiers, API-key policy, or live rate-limit behavior. Capture
-sanitized live responses with a provisioned test account before presenting
-them as observed partner examples.
+use mocked HTTP/WebSocket transports and block socket/DNS access. The limited
+live checks below do not prove order admission, fills, fee tiers, bot-key
+policy, or rate-limit behavior. Capture sanitized fills and fee responses
+with a provisioned trading account before presenting them as observed partner
+examples.
+
+## Live verification (2026-09-24)
+
+With a locally held Galileo test wallet, `examples/02_private_rest.py` completed
+SIWE sign-in, `GET /fapi/v1/account`, `positionRisk`, and `openOrders`. The
+account response included `accountPresent: false` and a `USDC.e` wallet balance
+of `0`; the BTC perp position amount and isolated margin were `0`, with no open
+orders. `GET /fapi/v1/commissionRate` returned maker and taker rates of `0`
+for this account and market; that is an advertised rate, not a measured fill
+fee. On-chain wallet USDC.e and native 0G balances do **not** imply that
+collateral has been deposited into PerpDEX. The account excerpt below is from
+the live REST response, with unrelated fields omitted:
+
+```json
+{"accountPresent":false,"assets":[{"asset":"USDC.e","walletBalance":"0"}]}
+```
+
+Private WebSocket `session.logon` and `userDataStream.subscribe` succeeded;
+the client observed subscription ID `1`. No account event arrived during the
+bounded wait, after which the client disconnected and required REST
+reconciliation. `GET /auth/nonce` returned 200. The public `exchangeInfo` and
+depth routes returned `503 CAPABILITY_UNAVAILABLE` with `readAvailable: false`
+and `writeAvailable: false`, although `/health` returned 200 at points in the
+same test window. No order was submitted and no fee was observed.
+
+The prior example's four VirtualBook addresses came from the older
+`staging-release` registry and had no code at those addresses on chain 16602.
+They were replaced with the current staging registry addresses. All four
+current addresses had bytecode whose hashes matched the registry's
+`runtimeCodeHash` values. This verifies the on-chain code at those addresses,
+not that the unavailable trading gateway would accept a signed order.

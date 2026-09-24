@@ -16,7 +16,7 @@ def main() -> None:
     config = TestnetConfig(allow_live_private=True)
     client = BondPerpDexClient(TestnetTransport(config))
     client.authenticate(WalletSigner.from_environment(), subaccount=args.subaccount)
-    with closing(client.user_events(max_events=args.max_events, max_reconnects=2)) as messages:
+    with closing(client.user_events(max_events=args.max_events, max_reconnects=0)) as messages:
         for message in messages:
             if message.kind == "connected":
                 print(f"Subscription acknowledged: {message.subscription_id}")
@@ -26,7 +26,12 @@ def main() -> None:
                 print(f"Event {event.get('e')}: {event.get('i', event.get('eventId', ''))}")
             else:
                 print(f"Stream disconnected: {message.reason}")
-            if message.requires_reconciliation and message.kind != "disconnected":
+                # A quiet account may emit no events during the bounded wait.
+                # Refresh REST state and let the operator decide when to reconnect.
+                client.reconcile_account(args.symbol)
+                print("REST account reconciliation completed")
+                break
+            if message.requires_reconciliation:
                 client.reconcile_account(args.symbol)
 
 

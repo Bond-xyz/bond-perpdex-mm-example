@@ -9,6 +9,20 @@ from .models import AccountSnapshot, Json, SafetyError, UserStreamMessage, decim
 class AccountQueries:
     """Read-side operations; the composed client supplies signed transport."""
 
+    def account(self) -> Json:
+        """Return the venue's account projection, including collateral balances."""
+        return self._object(self._send(self._private("GET", "/fapi/v1/account", {})))
+
+    def balances(self) -> list[Json]:
+        """Return the venue's balance rows without changing their wire fields."""
+        return self._objects(self._send(self._private("GET", "/fapi/v1/balance", {})))
+
+    def commission_rate(self, symbol: str) -> Json:
+        """Return the account's advertised maker and taker rates for a market."""
+        return self._object(
+            self._send(self._private("GET", "/fapi/v1/commissionRate", {"symbol": symbol}))
+        )
+
     def positions(self, symbol: str) -> list[Json]:
         return self._objects(
             self._send(self._private("GET", "/fapi/v1/positionRisk", {"symbol": symbol}))

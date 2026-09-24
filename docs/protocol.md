@@ -15,9 +15,10 @@ From the project directory, run:
 
 This makes real public testnet requests: it fetches `exchangeInfo` and a depth
 snapshot, receives one acknowledged WebSocket depth event, and exits. It requires
-no credentials and sends no orders. It is not the offline smoke test and was not
-run during development. HTTP and WebSocket URLs are exact allowlists from the
-source runtime registry. Redirects and environment proxies are disabled, with
+no credentials and sends no orders. It is not the offline smoke test. A
+2026-09-24 live attempt stopped at `exchangeInfo` because the public market
+routes returned `503 CAPABILITY_UNAVAILABLE`. HTTP and WebSocket URLs are exact
+allowlists from the source runtime registry. Redirects and environment proxies are disabled, with
 bounded timeouts and message sizes.
 
 ## Transport permissions
@@ -35,8 +36,9 @@ not implemented.
 
 ## Explicitly enable the sample client's testnet access
 
-**These snippets make real requests if you run them; none was run during
-development.** Use a separately provisioned, dedicated testnet wallet/subaccount.
+**These snippets make real requests if you run them.** Sign-in, private reads,
+and private subscription were run on 2026-09-24; no order mutation was run.
+Use a separately provisioned, dedicated testnet wallet/subaccount.
 Inject `BOND_TESTNET_WALLET_KEY` (32-byte hex) through your secret manager into the
 process environment. Do not paste a key into a shell command, configuration file,
 source file, notebook, or chat. No `.env` loading or credential persistence exists.
@@ -223,7 +225,7 @@ Binance SDK, external registry, or guessed deployment was used as authority.
 | Market IDs, precision, tick/step, minimum notional | `core/types/src/symbol.rs` (BTC starts at line 278); `services/market-data/src/api.rs` |
 | WS SUBSCRIBE/ack/envelope and depth sequence fields | `services/market-data/src/wss_api.rs::a_depth_subscription_acknowledges_and_relays_real_frames`; `services/market-data/core/src/models/wss.rs::DiffBookDepthResponse` |
 | Absolute wire depth quantities, zero removals, `U/u/pu` gaps | `services/market-data/core/src/handler/depth.rs::DepthPendingPublish::into_diff_book_depth_response`, `Depth::update_depth`; `services/market-data/src/wss_api.rs::the_real_publisher_delivers_depth_frames_to_a_subscribed_socket` |
-| Testnet endpoint, chain and current VirtualBooks | `deploy/environments/staging-release/runtime-registry.json` |
+| Testnet endpoint, chain and current VirtualBooks | `platform/bond-config/src/generated.rs`; `deploy/environments/staging-adoption/runtime-registry.json` |
 | Existing MM lifecycle, unknown-result and restart concerns | `services/mm-bot/src/bot.rs`, `journal.rs`, `signed_order.rs`, `continuity.md` |
 
 The packaged `tests/fixtures/order-vector.json` is the **order** object extracted
@@ -297,15 +299,14 @@ caller-supplied orders. Strategy rounding goes outward to the tick.
   liquidation, funding, fees, settlement, partial-fill engine, or collateral
   provisioning is simulated. The mocks validate signatures and
   wire terms but do not certify venue admission or economic execution.
-- **Deployment uncertainty:** the pinned registry supersedes the older MM fallback
-  VirtualBook table. It describes source configuration, not independently observed
-  current deployment identity. The server additionally reads Endpoint time and
+- **Deployment uncertainty:** the current staging registry supersedes the older
+  `staging-release` VirtualBook table. The four registry VirtualBook bytecode
+  hashes matched on chain 16602 on 2026-09-24, but market routes were unavailable,
+  so backend order admission was not observed. The server additionally reads Endpoint time and
   on-chain product size increments during signed ingress; `exchangeInfo` alone
-  does not certify these. Development performed no RPC/deployment/account access
-  and cannot attest current venue availability, balances, margin, contract size
-  increments, or SIWE policy. Re-review the registry and these gates before any
-  future explicitly approved live integration. Source signed terms and wire
-  encodings are verified; current runtime state remains intentionally unverified.
+  does not certify these. SIWE, private account reads, and WebSocket subscription
+  succeeded with a test wallet, but admission, fills, fees and rate limits remain
+  unverified. Re-review the registry and these gates before live trading.
 
 ## Checks
 
@@ -325,9 +326,11 @@ HTTP/WS transport mocks, redirects/errors without retries, depth freshness/gaps,
 inventory limits, lost submit/cancel acknowledgements, session expiry, and cleanup.
 Real HTTP auth/account/place/cancel/cancel-all paths are exercised through
 `httpx.MockTransport`, and private WS session/signature/events/reconnect paths
-through bounded socket doubles. No live request is used to validate either path.
+through bounded socket doubles. A separate live run verified only SIWE sign-in,
+private reads, and private WebSocket subscription; see the
+[live verification notes](oems-integration.md#live-verification-2026-09-24).
 The no-transaction smoke invokes the actual CLI with socket access forbidden.
 It is deterministic, needs no secrets, and cannot place a live order.
 
 The repository is published as private source. The checks above remain local
-protocol and mock-transport evidence, not live Galileo validation.
+protocol and mock-transport evidence; the separate live run did not place an order.

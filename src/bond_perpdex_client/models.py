@@ -12,10 +12,10 @@ WS_URL = "wss://perpdex-testnet.bond.xyz/ws"
 WS_API_URL = "wss://perpdex-testnet.bond.xyz/ws-fapi/v1"
 CHAIN_ID = 16602
 VIRTUAL_BOOKS = {
-    "BTCUSDCPERP": (2, "0xd4d496823906464b0ae886e458cd46834a9c1640"),
-    "ETHUSDCPERP": (4, "0x9bd7c857a10b1049e6dbc4061de36aa1e1c2d969"),
-    "SOLUSDCPERP": (6, "0x8d2c48d2e3de9b8085fcc33105090eb0d0b9fd5a"),
-    "0GUSDCPERP": (8, "0xcc4bbfeb0623f833eea937f6bbd24f4ab550f7d1"),
+    "BTCUSDCPERP": (2, "0x0600d31371f0191aaeb4133fd1f4edad21d513f1"),
+    "ETHUSDCPERP": (4, "0x61c50d415c537e55bec5768fe57bf0c06451aec2"),
+    "SOLUSDCPERP": (6, "0x1702b216fa21130e857b3b5baafa14a8d983ab79"),
+    "0GUSDCPERP": (8, "0x571df73ca7984e42300d6ef13a12201ef77ed9d2"),
 }
 
 

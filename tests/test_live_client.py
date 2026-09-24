@@ -71,6 +71,13 @@ def test_real_transport_auth_place_account_reads_query_and_cancel_are_mocked(liv
     ]
     signin = json.loads(wire[1].content)
     assert signin["secret_type"] == "Ed25519" and "BEGIN PUBLIC KEY" in signin["secret_key"]
+    assert client.account()["accountPresent"] is False
+    assert client.balances() == [{"asset": "USDC.e", "balance": "0"}]
+    assert client.commission_rate("BTCUSDCPERP") == {
+        "symbol": "BTCUSDCPERP",
+        "makerCommissionRate": "0",
+        "takerCommissionRate": "0",
+    }
     intent = prepare(live_mock)
     result = client.submit_order(intent)
     assert result["status"] == "NEW"
@@ -186,7 +193,7 @@ def test_live_pinned_domain_guard_rejects_changed_intent_before_account_io(live_
     client, _, _, _, wire = live_mock
     intent = prepare(live_mock)
     changed = intent.request.body.replace(
-        "0xd4d496823906464b0ae886e458cd46834a9c1640",
+        "0x0600d31371f0191aaeb4133fd1f4edad21d513f1",
         "0x" + "11" * 20,
     )
     before = len(wire)

@@ -23,7 +23,7 @@ bot-key header signature.
 | --- | --- | --- |
 | 1. Sign an order | `examples/01_signing_offline.py` | None; synthetic fixture only. |
 | 2. Inspect public data | `.venv/bin/python -m bond_perpdex_client --testnet-read-only` | Public REST and WebSocket reads. |
-| 3. Sign in, read, optionally place/cancel | `examples/02_private_rest.py --help` | SIWE sign-in and private reads; `--place` sends one order. |
+| 3. Sign in, read, optionally place/cancel | `examples/02_private_rest.py --help` | SIWE sign-in, account and position reads; `--place` sends one order. |
 | 4. Subscribe to private updates | `examples/03_private_stream.py --help` | SIWE sign-in and bounded private stream; no orders. |
 | 5. Use an existing bot key | `examples/04_provisioned_key_read.py` | One private REST account read; no orders. |
 
@@ -79,6 +79,10 @@ limits. The [protocol reference](docs/protocol.md) holds implementation details.
 - The example contract and VirtualBook registry come from `bond-perpdex`
   revision `34869838ed5588f6a4686f6663e824212287ddb3`. Check the deployed
   environment and current source before live use.
+- A supervised 2026-09-24 test confirmed SIWE sign-in, private account reads,
+  and a private WebSocket subscription. The test wallet had no PerpDEX account
+  record; public market routes returned `503 CAPABILITY_UNAVAILABLE`. No order
+  was submitted. See [live verification](docs/oems-integration.md#live-verification-2026-09-24).
 
 ## Checks
 

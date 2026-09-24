@@ -44,6 +44,13 @@ def main() -> None:
 
     # SIWE creates a wallet session. A new sign-in may replace its old token.
     client.authenticate(wallet, subaccount=args.subaccount)
+    account = client.account()
+    print(f"PerpDEX account present: {account.get('accountPresent')}")
+    rates = client.commission_rate(args.symbol)
+    print(
+        f"Advertised {args.symbol} rates: maker {rates.get('makerCommissionRate')}, "
+        f"taker {rates.get('takerCommissionRate')}"
+    )
     snapshot = client.reconcile_account(args.symbol)
     print(
         f"Account read: {len(snapshot.positions)} position, {len(snapshot.open_orders)} open orders"
