@@ -1,7 +1,9 @@
 # Protocol and integration reference
 
-Start with the [README](../README.md) for installation and an offline example.
-This reference covers real testnet usage, protocol details, and source evidence.
+Start with the [README](../README.md) for installation and the
+[OEMS integration guide](oems-integration.md) for direct answers to signing,
+compatibility, authentication, and rate-limit questions. This reference covers
+real testnet usage, protocol details, and source evidence.
 
 ## Public read-only depth
 
@@ -189,7 +191,8 @@ it is not an automatic order/fill reconciliation engine or a lossless ledger.
 
 ## Wire compatibility
 
-The sole protocol authority was the local `bond-perpdex` implementation at:
+The signing and wallet-session implementation was pinned to the local
+`bond-perpdex` implementation at:
 
 ```text
 34869838ed5588f6a4686f6663e824212287ddb3
@@ -326,7 +329,5 @@ through bounded socket doubles. No live request is used to validate either path.
 The no-transaction smoke invokes the actual CLI with socket access forbidden.
 It is deterministic, needs no secrets, and cannot place a live order.
 
-No source-repository files were modified or built. No Git repository was initialized,
-no commits/branches/pushes were made, and no GitHub repository was created. This
-local deliverable awaits **Red's approval of initial repository creation and
-visibility**; publication and a license choice are intentionally left to that review.
+The repository is published as private source. The checks above remain local
+protocol and mock-transport evidence, not live Galileo validation.

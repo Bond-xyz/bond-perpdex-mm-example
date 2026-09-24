@@ -13,6 +13,7 @@ from .models import (
 )
 from .signing import WalletSigner
 from .transport import TestnetReadOnlyTransport, TestnetTransport
+from .wire import websocket_order_place
 
 __all__ = [
     "BondPerpDexClient",
@@ -27,4 +28,5 @@ __all__ = [
     "AccountSnapshot",
     "TestnetTransport",
     "UserStreamMessage",
+    "websocket_order_place",
 ]
