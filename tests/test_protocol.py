@@ -12,9 +12,9 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from eth_account import Account
 from eth_account.messages import encode_defunct
 
-from bond_perpdex import Quote, SafetyError, UnknownOutcome
-from bond_perpdex.offline import NOW_MS, demo_identity
-from bond_perpdex.signing import (
+from bond_perpdex_client import Quote, SafetyError, UnknownOutcome
+from bond_perpdex_client.offline import NOW_MS, demo_identity
+from bond_perpdex_client.signing import (
     canonical_form,
     compact,
     order_hashes,

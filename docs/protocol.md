@@ -1,21 +1,24 @@
 # Protocol and integration reference
 
-Start with the [README](../README.md) for installation and an offline example.
-This reference covers real testnet usage, protocol details, and source evidence.
+Start with the [README](../README.md) for installation and the
+[OEMS integration guide](oems-integration.md) for direct answers to signing,
+compatibility, authentication, and rate-limit questions. This reference covers
+real testnet usage, protocol details, and source evidence.
 
 ## Public read-only depth
 
 From the project directory, run:
 
 ```sh
-.venv/bin/python -m bond_perpdex --testnet-read-only
+.venv/bin/python -m bond_perpdex_client --testnet-read-only
 ```
 
 This makes real public testnet requests: it fetches `exchangeInfo` and a depth
 snapshot, receives one acknowledged WebSocket depth event, and exits. It requires
-no credentials and sends no orders. It is not the offline smoke test and was not
-run during development. HTTP and WebSocket URLs are exact allowlists from the
-source runtime registry. Redirects and environment proxies are disabled, with
+no credentials and sends no orders. It is not the offline smoke test. A
+2026-09-24 live attempt stopped at `exchangeInfo` because the public market
+routes returned `503 CAPABILITY_UNAVAILABLE`. HTTP and WebSocket URLs are exact
+allowlists from the source runtime registry. Redirects and environment proxies are disabled, with
 bounded timeouts and message sizes.
 
 ## Transport permissions
@@ -31,10 +34,11 @@ a custom network transport `offline=True` circumvents the safety boundary and is
 unsupported. Funding, deposits, transfers, leverage changes, and withdrawals are
 not implemented.
 
-## Explicitly enable the real testnet SDK
+## Explicitly enable the sample client's testnet access
 
-**These snippets make real requests if you run them; none was run during
-development.** Use a separately provisioned, dedicated testnet wallet/subaccount.
+**These snippets make real requests if you run them.** Sign-in, private reads,
+and private subscription were run on 2026-09-24; no order mutation was run.
+Use a separately provisioned, dedicated testnet wallet/subaccount.
 Inject `BOND_TESTNET_WALLET_KEY` (32-byte hex) through your secret manager into the
 process environment. Do not paste a key into a shell command, configuration file,
 source file, notebook, or chat. No `.env` loading or credential persistence exists.
@@ -47,7 +51,7 @@ order mutations:
 ```python
 from contextlib import closing
 
-from bond_perpdex import BondPerpDexClient, TestnetConfig, TestnetTransport, WalletSigner
+from bond_perpdex_client import BondPerpDexClient, TestnetConfig, TestnetTransport, WalletSigner
 
 config = TestnetConfig(allow_live_private=True, allow_live_orders=False)
 client = BondPerpDexClient(TestnetTransport(config))
@@ -84,7 +88,7 @@ After creating/authenticating that client, the reusable methods are:
 
 ```python
 from decimal import Decimal
-from bond_perpdex import Quote
+from bond_perpdex_client import Quote
 
 market = client.market("BTCUSDCPERP")
 intent = client.prepare_order(wallet, market, Quote("BUY", Decimal("64939.9"), Decimal("0.002")))
@@ -105,7 +109,7 @@ These non-atomic projection reads are conservative checks, not a margin guarante
 Orders can fill before cancellation; a cancel acknowledgement does not undo fills.
 
 An ordinary unrestricted single-cancel response **omits `status` in the current
-source**. The SDK returns that response unchanged and records the UUID in
+source**. The sample client returns that response unchanged and records the UUID in
 `pending_cancellations`; it does not synthesize `CANCELED`. New live submissions
 remain blocked until `query_order(..., order_id=...)` or `reconcile_account()`
 observes a terminal order status (`CANCELED`, `FILLED`, or `EXPIRED`). A temporarily
@@ -171,7 +175,7 @@ validates the subscription ID after the acknowledgement. Actual event variants:
 Execution and position `I` share a process-global counter before account filtering.
 A forward jump may represent other accounts' events, not proven loss on this
 account. A lower/equal value may indicate restart/reset or a duplicate; it is not
-silently dropped. These cases emit reconciliation-required notices. The SDK's
+silently dropped. These cases emit reconciliation-required notices. The sample client's
 `UserStreamMessage` wrapper distinguishes local connection notices from original
 server event dictionaries; it never invents server frames or sequence epochs.
 
@@ -189,7 +193,8 @@ it is not an automatic order/fill reconciliation engine or a lossless ledger.
 
 ## Wire compatibility
 
-The sole protocol authority was the local `bond-perpdex` implementation at:
+The signing and wallet-session implementation was pinned to the local
+`bond-perpdex` implementation at:
 
 ```text
 34869838ed5588f6a4686f6663e824212287ddb3
@@ -220,7 +225,7 @@ Binance SDK, external registry, or guessed deployment was used as authority.
 | Market IDs, precision, tick/step, minimum notional | `core/types/src/symbol.rs` (BTC starts at line 278); `services/market-data/src/api.rs` |
 | WS SUBSCRIBE/ack/envelope and depth sequence fields | `services/market-data/src/wss_api.rs::a_depth_subscription_acknowledges_and_relays_real_frames`; `services/market-data/core/src/models/wss.rs::DiffBookDepthResponse` |
 | Absolute wire depth quantities, zero removals, `U/u/pu` gaps | `services/market-data/core/src/handler/depth.rs::DepthPendingPublish::into_diff_book_depth_response`, `Depth::update_depth`; `services/market-data/src/wss_api.rs::the_real_publisher_delivers_depth_frames_to_a_subscribed_socket` |
-| Testnet endpoint, chain and current VirtualBooks | `deploy/environments/staging-release/runtime-registry.json` |
+| Testnet endpoint, chain and current VirtualBooks | `platform/bond-config/src/generated.rs`; `deploy/environments/staging-adoption/runtime-registry.json` |
 | Existing MM lifecycle, unknown-result and restart concerns | `services/mm-bot/src/bot.rs`, `journal.rs`, `signed_order.rs`, `continuity.md` |
 
 The packaged `tests/fixtures/order-vector.json` is the **order** object extracted
@@ -294,15 +299,14 @@ caller-supplied orders. Strategy rounding goes outward to the tick.
   liquidation, funding, fees, settlement, partial-fill engine, or collateral
   provisioning is simulated. The mocks validate signatures and
   wire terms but do not certify venue admission or economic execution.
-- **Deployment uncertainty:** the pinned registry supersedes the older MM fallback
-  VirtualBook table. It describes source configuration, not independently observed
-  current deployment identity. The server additionally reads Endpoint time and
+- **Deployment uncertainty:** the current staging registry supersedes the older
+  `staging-release` VirtualBook table. The four registry VirtualBook bytecode
+  hashes matched on chain 16602 on 2026-09-24, but market routes were unavailable,
+  so backend order admission was not observed. The server additionally reads Endpoint time and
   on-chain product size increments during signed ingress; `exchangeInfo` alone
-  does not certify these. Development performed no RPC/deployment/account access
-  and cannot attest current venue availability, balances, margin, contract size
-  increments, or SIWE policy. Re-review the registry and these gates before any
-  future explicitly approved live integration. Source signed terms and wire
-  encodings are verified; current runtime state remains intentionally unverified.
+  does not certify these. SIWE, private account reads, and WebSocket subscription
+  succeeded with a test wallet, but admission, fills, fees and rate limits remain
+  unverified. Re-review the registry and these gates before live trading.
 
 ## Checks
 
@@ -311,7 +315,7 @@ caller-supplied orders. Strategy rounding goes outward to the tick.
 .venv/bin/ruff check src tests
 .venv/bin/pytest -q
 .venv/bin/pytest -q tests/test_smoke.py
-.venv/bin/python -m bond_perpdex
+.venv/bin/python -m bond_perpdex_client
 .venv/bin/python -m pip check
 ```
 
@@ -322,11 +326,11 @@ HTTP/WS transport mocks, redirects/errors without retries, depth freshness/gaps,
 inventory limits, lost submit/cancel acknowledgements, session expiry, and cleanup.
 Real HTTP auth/account/place/cancel/cancel-all paths are exercised through
 `httpx.MockTransport`, and private WS session/signature/events/reconnect paths
-through bounded socket doubles. No live request is used to validate either path.
+through bounded socket doubles. A separate live run verified only SIWE sign-in,
+private reads, and private WebSocket subscription; see the
+[live verification notes](oems-integration.md#live-verification-2026-09-24).
 The no-transaction smoke invokes the actual CLI with socket access forbidden.
 It is deterministic, needs no secrets, and cannot place a live order.
 
-No source-repository files were modified or built. No Git repository was initialized,
-no commits/branches/pushes were made, and no GitHub repository was created. This
-local deliverable awaits **Red's approval of initial repository creation and
-visibility**; publication and a license choice are intentionally left to that review.
+The repository is published as private source. The checks above remain local
+protocol and mock-transport evidence; the separate live run did not place an order.

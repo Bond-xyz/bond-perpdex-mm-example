@@ -1,4 +1,4 @@
-"""Offline-first SDK seed with explicitly enabled testnet-only private APIs."""
+"""Example BondPerpDEX client with explicitly enabled testnet-only private APIs."""
 
 from .client import BondPerpDexClient
 from .models import (
@@ -13,6 +13,7 @@ from .models import (
 )
 from .signing import WalletSigner
 from .transport import TestnetReadOnlyTransport, TestnetTransport
+from .wire import websocket_order_place
 
 __all__ = [
     "BondPerpDexClient",
@@ -27,4 +28,5 @@ __all__ = [
     "AccountSnapshot",
     "TestnetTransport",
     "UserStreamMessage",
+    "websocket_order_place",
 ]

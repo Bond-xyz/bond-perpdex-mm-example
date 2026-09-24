@@ -7,21 +7,21 @@ from urllib.parse import parse_qs
 import httpx
 import pytest
 
-from bond_perpdex import (
+from bond_perpdex_client import (
     BondPerpDexClient,
     Quote,
     SafetyError,
     UnknownOutcome,
     WalletSigner,
 )
-from bond_perpdex import (
+from bond_perpdex_client import (
     TestnetConfig as Config,
 )
-from bond_perpdex import (
+from bond_perpdex_client import (
     TestnetTransport as LiveTransport,
 )
-from bond_perpdex.models import PreparedRequest
-from bond_perpdex.offline import NOW_MS, OfflineVenue, demo_identity
+from bond_perpdex_client.models import PreparedRequest
+from bond_perpdex_client.offline import NOW_MS, OfflineVenue, demo_identity
 
 
 @pytest.fixture
@@ -49,7 +49,7 @@ def live_mock(monkeypatch):
         assert kwargs == {"timeout": 5, "follow_redirects": False, "trust_env": False}
         return real_client(transport=httpx.MockTransport(handler), **kwargs)
 
-    monkeypatch.setattr("bond_perpdex.transport.httpx.Client", factory)
+    monkeypatch.setattr("bond_perpdex_client.transport.httpx.Client", factory)
     config = Config(allow_live_private=True, allow_live_orders=True)
     transport = LiveTransport(config)
     client = BondPerpDexClient(transport, clock_ms=lambda: venue.now_ms)
@@ -71,6 +71,13 @@ def test_real_transport_auth_place_account_reads_query_and_cancel_are_mocked(liv
     ]
     signin = json.loads(wire[1].content)
     assert signin["secret_type"] == "Ed25519" and "BEGIN PUBLIC KEY" in signin["secret_key"]
+    assert client.account()["accountPresent"] is False
+    assert client.balances() == [{"asset": "USDC.e", "balance": "0"}]
+    assert client.commission_rate("BTCUSDCPERP") == {
+        "symbol": "BTCUSDCPERP",
+        "makerCommissionRate": "0",
+        "takerCommissionRate": "0",
+    }
     intent = prepare(live_mock)
     result = client.submit_order(intent)
     assert result["status"] == "NEW"
@@ -186,7 +193,7 @@ def test_live_pinned_domain_guard_rejects_changed_intent_before_account_io(live_
     client, _, _, _, wire = live_mock
     intent = prepare(live_mock)
     changed = intent.request.body.replace(
-        "0xd4d496823906464b0ae886e458cd46834a9c1640",
+        "0x0600d31371f0191aaeb4133fd1f4edad21d513f1",
         "0x" + "11" * 20,
     )
     before = len(wire)
@@ -262,7 +269,7 @@ def test_live_auth_redirect_or_unknown_result_does_not_refresh_or_retry(monkeypa
         return httpx.Response(307, headers={"Location": "https://other.example/auth/signin"})
 
     monkeypatch.setattr(
-        "bond_perpdex.transport.httpx.Client",
+        "bond_perpdex_client.transport.httpx.Client",
         lambda **kwargs: real_client(transport=httpx.MockTransport(handler), **kwargs),
     )
     client = BondPerpDexClient(

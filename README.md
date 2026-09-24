@@ -1,64 +1,97 @@
-# BondPerpDEX market-maker examples
+# BondPerpDEX OEMS integration examples
 
-A small Python package with a reusable `BondPerpDexClient` and testnet market-making examples.
+Small Python examples for **Galileo testnet (chain 16602)**. Start with the
+no-network signing example, then choose the credential and transport you need.
+This repository is reference code, not a published SDK or proof that a live
+account can currently trade. The private examples make real requests when run.
 
-[Quick start](#quick-start) · [Examples](#examples) · [Safety](#safety) · [Checks](#checks) · [Protocol reference](docs/protocol.md)
+## Start here
 
-## Quick start
-
-Requires **Python 3.12+** and a POSIX shell. From this directory:
+Python 3.12+ and a POSIX shell are required.
 
 ```sh
 sh install.sh
-.venv/bin/python -m bond_perpdex
+.venv/bin/python examples/01_signing_offline.py
 ```
 
-The installer creates `.venv`. The default demo signs two BTC quotes, cancels them,
-and confirms no open orders—**no credentials, network requests, or transactions**.
-To customize it, edit `config.example.json` and add `--config config.example.json`
-to the run command.
+The first script prints a synthetic SIWE message and Vertex order envelope.
+It shows the **wallet EIP-712 signature** and **Ed25519 account signature**
+without sending a request. Example 04 covers the separate provisioned
+bot-key header signature.
 
-## Examples
+| Step | Run or read | Network and effect |
+| --- | --- | --- |
+| 1. Sign an order | `examples/01_signing_offline.py` | None; synthetic fixture only. |
+| 2. Inspect public data | `.venv/bin/python -m bond_perpdex_client --testnet-read-only` | Public REST and WebSocket reads. |
+| 3. Sign in, read, optionally place/cancel | `examples/02_private_rest.py --help` | SIWE sign-in, account and position reads; `--place` sends one order. |
+| 4. Subscribe to private updates | `examples/03_private_stream.py --help` | SIWE sign-in and bounded private stream; no orders. |
+| 5. Use an existing bot key | `examples/04_provisioned_key_read.py` | One private REST account read; no orders. |
 
-These are the existing CLI and client entry points, not separate numbered scripts.
+The scripts are separate so a reader can follow one protocol layer at a time.
+The reusable client lives in `src/bond_perpdex_client/`; the maker strategy is an
+independent offline demonstration in `python -m bond_perpdex_client`.
+`bond_perpdex_client` is this repository's Python import name, not an official
+`bond-sdk` package. The installable project is named `bond-perpdex-mm-example`.
 
-| # | Entry point | What it does |
-|---|---|---|
-| 01 | `.venv/bin/python -m bond_perpdex` | Runs one offline dry-run maker cycle: quote, sign, cancel, verify cleanup. |
-| 02 | `.venv/bin/python -m bond_perpdex --testnet-read-only` | Reads public testnet depth over REST and WebSocket; no auth or orders. |
-| 03 | [`authenticate()`, `submit_order()`, `cancel_order()`, `cancel_all()`](docs/protocol.md#explicitly-enable-the-real-testnet-sdk) | Opt-in live testnet SIWE auth and signed REST orders/cancellations. |
-| 04 | [`user_events()`](docs/protocol.md#private-websocket-behavior-and-source-caveats) | Opens the private user stream with bounded reconnect, re-logon, and resubscription. |
+The client code follows the same boundaries: `client_session.py` owns sign-in
+and signed transport, `client_account.py` owns reads and reconciliation,
+`client_orders.py` owns order commands, `user_stream.py` owns subscription
+lifecycle, and `client.py` preserves one small public facade. `signing.py`
+builds wallet and account signatures; `bot_key.py` builds the separate
+provisioned-key HTTP headers.
 
-The client is reusable independently of the demo strategy. See the
-[integration examples and protocol details](docs/protocol.md) for real testnet usage.
+## Direct answers for OEMS integrators
 
-## Safety
+1. **Order signing:** The documented Galileo perp order path requires a
+   `signedOrder` Vertex EIP-712 envelope as well as an Ed25519 account request
+   signature. Ed25519 alone does not authorize a release-bound perp order.
+   REST `POST /fapi/v1/order` is implemented here; side-effect-free
+   `websocket_order_place()` shows the equivalent `order.place` request shape.
+   WebSocket order transmission has not been live-verified by this repository.
+2. **Binance compatibility:** Route names and selected fields are familiar, but
+   private payloads and authentication are Bond-specific. See
+   [event and response examples](docs/oems-integration.md#2-binance-compatibility-and-fees).
+   The current engine models nonnegative execution fees in `USDC.e`; this
+   example does not claim negative maker rebates.
+3. **Authentication:** The SIWE wallet session used for private WebSocket and
+   examples 02–03 is distinct from a provisioned REST bot key. The latter can
+   be reused across process restarts while valid and not revoked, provided its
+   Ed25519 key is retained securely. This package does not persist credentials.
+4. **Rate limits:** `exchangeInfo` does not describe every applicable layer.
+   See [rate limits](docs/oems-integration.md#4-rate-limits) for the bot-key,
+   IP, and WebSocket limits and what is actually metered.
 
-- **Testnet only:** chain **16602**, pinned endpoints and runtime-registry VirtualBooks.
-  This is an example project, **not a published or official SDK**.
-- **Live access is opt-in:** private calls require `allow_live_private=True`;
-  order placement and cancellation also require `allow_live_orders=True`.
-- **Keep credentials out of files and logs.** Supply `BOND_TESTNET_WALLET_KEY` through
-  a secret manager into the process environment. Use a dedicated testnet wallet;
-  never fund the public demo identities.
-- **Supervised use only:** unknown command outcomes halt new orders. Confirm terminal
-  cancellation before replacing quotes. Reconnect does not replay orders or recover
-  missed events. Live deployment behavior has not been verified.
-- **Partial Binance API parity only:** familiar routes do not imply full compatibility.
-  The source's private WS logon signature does not bind the timestamp or API key;
-  read the [protocol caveats](docs/protocol.md#private-websocket-behavior-and-source-caveats)
-  before enabling private access.
+The [OEMS integration guide](docs/oems-integration.md) gives exact signing
+fields, credential lifetimes, sanitized source-derived frames, and verification
+limits. The [protocol reference](docs/protocol.md) holds implementation details.
+
+## Operating boundaries
+
+- Real private access must be explicitly enabled in code; real order writes
+  additionally require `allow_live_orders=True`. Scripts 02–03 use a dedicated
+  testnet wallet key supplied as `BOND_TESTNET_WALLET_KEY` by a secret manager.
+  Script 04 reads existing `BOND_BOT_API_KEY` and
+  `BOND_BOT_ED25519_PRIVATE_KEY_PEM`; it never creates a key.
+- A lost submit or cancel acknowledgement is an **unknown outcome**, not a
+  reason to send the mutation again. Query and reconcile venue state.
+  Reconnect does not replay missed private events. The client has no durable
+  journal, so it is not an unattended market maker.
+- The example contract and VirtualBook registry come from `bond-perpdex`
+  revision `34869838ed5588f6a4686f6663e824212287ddb3`. Check the deployed
+  environment and current source before live use.
+- A supervised 2026-09-24 test confirmed SIWE sign-in, private account reads,
+  and a private WebSocket subscription. The test wallet had no PerpDEX account
+  record; public market routes returned `503 CAPABILITY_UNAVAILABLE`. No order
+  was submitted. See [live verification](docs/oems-integration.md#live-verification-2026-09-24).
 
 ## Checks
 
 ```sh
-.venv/bin/ruff format --check src tests
-.venv/bin/ruff check src tests
+.venv/bin/ruff format --check src tests examples
+.venv/bin/ruff check src tests examples
 .venv/bin/pytest -q
-.venv/bin/pytest -q tests/test_smoke.py
+.venv/bin/python examples/01_signing_offline.py
 ```
 
-Tests mock HTTP/WebSocket transports and block sockets/DNS. The smoke runs the CLI offline.
-The sole protocol authority is `bond-perpdex` at
-`34869838ed5588f6a4686f6663e824212287ddb3`; exact source references and signing details
-are in [docs/protocol.md](docs/protocol.md#wire-compatibility).
+Tests use blocked sockets/DNS and mocked transports. They verify signing
+vectors and request shapes, not live admission, fills, fees, or deployment.

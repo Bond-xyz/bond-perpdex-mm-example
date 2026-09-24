@@ -20,10 +20,10 @@ def main() -> None:
     settings = json.loads(args.config.read_text()) if args.config else {}
     if settings.get("mode", "offline") != "offline":
         raise SafetyError(
-            "The CLI supports only offline configuration; use the SDK for private I/O"
+            "The CLI supports only offline configuration; use the sample client for private I/O"
         )
     if settings.get("allow_live_private") or settings.get("allow_live_orders"):
-        raise SafetyError("CLI never enables private I/O; explicitly configure the reusable SDK")
+        raise SafetyError("CLI never enables private I/O; explicitly configure the sample client")
     config = TestnetConfig(
         **{
             key: settings[key]

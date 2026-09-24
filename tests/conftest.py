@@ -2,8 +2,8 @@ import socket
 
 import pytest
 
-from bond_perpdex import BondPerpDexClient
-from bond_perpdex.offline import NOW_MS, OfflineVenue, demo_identity
+from bond_perpdex_client import BondPerpDexClient
+from bond_perpdex_client.offline import NOW_MS, OfflineVenue, demo_identity
 
 
 @pytest.fixture(autouse=True)

@@ -121,8 +121,32 @@ class OfflineVenue:
                 "id": "00000000-0000-4000-8000-000000000001",
             }
         fields = self._verify_request(request)
-        if request.method == "GET" and fields.get("symbol") != "BTCUSDCPERP":
+        if (
+            request.method == "GET"
+            and parsed.path
+            in {
+                "/fapi/v1/positionRisk",
+                "/fapi/v1/openOrders",
+                "/fapi/v1/order",
+                "/fapi/v1/commissionRate",
+            }
+            and fields.get("symbol") != "BTCUSDCPERP"
+        ):
             raise SafetyError("Offline account fixture supports only BTCUSDCPERP")
+        if request.method == "GET" and parsed.path == "/fapi/v1/account":
+            return {
+                "accountPresent": False,
+                "assets": [{"asset": "USDC.e", "walletBalance": "0"}],
+                "positions": [],
+            }
+        if request.method == "GET" and parsed.path == "/fapi/v1/balance":
+            return [{"asset": "USDC.e", "balance": "0"}]
+        if request.method == "GET" and parsed.path == "/fapi/v1/commissionRate":
+            return {
+                "symbol": "BTCUSDCPERP",
+                "makerCommissionRate": "0",
+                "takerCommissionRate": "0",
+            }
         if request.method == "GET" and parsed.path == "/fapi/v1/positionRisk":
             return [{"symbol": "BTCUSDCPERP", "positionAmt": "0", "updateTime": self.now_ms}]
         if request.method == "GET" and parsed.path == "/fapi/v1/openOrders":

@@ -3,9 +3,9 @@ from decimal import Decimal
 
 import pytest
 
-from bond_perpdex import SafetyError
-from bond_perpdex.offline import DEPTH_FRAME, NOW_MS, SNAPSHOT
-from bond_perpdex.strategy import DepthBook, MakerPolicy
+from bond_perpdex_client import SafetyError
+from bond_perpdex_client.offline import DEPTH_FRAME, NOW_MS, SNAPSHOT
+from bond_perpdex_client.strategy import DepthBook, MakerPolicy
 
 
 def synced_book():
