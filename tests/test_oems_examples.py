@@ -8,10 +8,10 @@ from urllib.parse import parse_qs
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from bond_perpdex import BondPerpDexClient, Quote, websocket_order_place
-from bond_perpdex.bot_key import BotKeyCredentials
-from bond_perpdex.offline import NOW_MS, OfflineVenue, demo_identity
-from bond_perpdex.signing import canonical_form, compact
+from bond_perpdex_client import BondPerpDexClient, Quote, websocket_order_place
+from bond_perpdex_client.bot_key import BotKeyCredentials
+from bond_perpdex_client.offline import NOW_MS, OfflineVenue, demo_identity
+from bond_perpdex_client.signing import canonical_form, compact
 
 
 def test_ws_order_place_reuses_the_rest_wallet_and_account_signatures():

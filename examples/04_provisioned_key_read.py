@@ -6,8 +6,8 @@ examples 02 and 03. It does not replace wallet-signed order authorization.
 
 import httpx
 
-from bond_perpdex.bot_key import BotKeyCredentials
-from bond_perpdex.models import HTTP_URL
+from bond_perpdex_client.bot_key import BotKeyCredentials
+from bond_perpdex_client.models import HTTP_URL
 
 
 def main() -> None:

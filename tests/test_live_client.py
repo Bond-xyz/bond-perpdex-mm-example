@@ -7,21 +7,21 @@ from urllib.parse import parse_qs
 import httpx
 import pytest
 
-from bond_perpdex import (
+from bond_perpdex_client import (
     BondPerpDexClient,
     Quote,
     SafetyError,
     UnknownOutcome,
     WalletSigner,
 )
-from bond_perpdex import (
+from bond_perpdex_client import (
     TestnetConfig as Config,
 )
-from bond_perpdex import (
+from bond_perpdex_client import (
     TestnetTransport as LiveTransport,
 )
-from bond_perpdex.models import PreparedRequest
-from bond_perpdex.offline import NOW_MS, OfflineVenue, demo_identity
+from bond_perpdex_client.models import PreparedRequest
+from bond_perpdex_client.offline import NOW_MS, OfflineVenue, demo_identity
 
 
 @pytest.fixture
@@ -49,7 +49,7 @@ def live_mock(monkeypatch):
         assert kwargs == {"timeout": 5, "follow_redirects": False, "trust_env": False}
         return real_client(transport=httpx.MockTransport(handler), **kwargs)
 
-    monkeypatch.setattr("bond_perpdex.transport.httpx.Client", factory)
+    monkeypatch.setattr("bond_perpdex_client.transport.httpx.Client", factory)
     config = Config(allow_live_private=True, allow_live_orders=True)
     transport = LiveTransport(config)
     client = BondPerpDexClient(transport, clock_ms=lambda: venue.now_ms)
@@ -262,7 +262,7 @@ def test_live_auth_redirect_or_unknown_result_does_not_refresh_or_retry(monkeypa
         return httpx.Response(307, headers={"Location": "https://other.example/auth/signin"})
 
     monkeypatch.setattr(
-        "bond_perpdex.transport.httpx.Client",
+        "bond_perpdex_client.transport.httpx.Client",
         lambda **kwargs: real_client(transport=httpx.MockTransport(handler), **kwargs),
     )
     client = BondPerpDexClient(

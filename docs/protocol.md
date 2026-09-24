@@ -10,7 +10,7 @@ real testnet usage, protocol details, and source evidence.
 From the project directory, run:
 
 ```sh
-.venv/bin/python -m bond_perpdex --testnet-read-only
+.venv/bin/python -m bond_perpdex_client --testnet-read-only
 ```
 
 This makes real public testnet requests: it fetches `exchangeInfo` and a depth
@@ -49,7 +49,7 @@ order mutations:
 ```python
 from contextlib import closing
 
-from bond_perpdex import BondPerpDexClient, TestnetConfig, TestnetTransport, WalletSigner
+from bond_perpdex_client import BondPerpDexClient, TestnetConfig, TestnetTransport, WalletSigner
 
 config = TestnetConfig(allow_live_private=True, allow_live_orders=False)
 client = BondPerpDexClient(TestnetTransport(config))
@@ -86,7 +86,7 @@ After creating/authenticating that client, the reusable methods are:
 
 ```python
 from decimal import Decimal
-from bond_perpdex import Quote
+from bond_perpdex_client import Quote
 
 market = client.market("BTCUSDCPERP")
 intent = client.prepare_order(wallet, market, Quote("BUY", Decimal("64939.9"), Decimal("0.002")))
@@ -314,7 +314,7 @@ caller-supplied orders. Strategy rounding goes outward to the tick.
 .venv/bin/ruff check src tests
 .venv/bin/pytest -q
 .venv/bin/pytest -q tests/test_smoke.py
-.venv/bin/python -m bond_perpdex
+.venv/bin/python -m bond_perpdex_client
 .venv/bin/python -m pip check
 ```
 

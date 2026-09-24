@@ -9,9 +9,9 @@ import json
 from decimal import Decimal
 from urllib.parse import parse_qs
 
-from bond_perpdex import BondPerpDexClient, Quote, websocket_order_place
-from bond_perpdex.offline import NOW_MS, OfflineVenue, demo_identity
-from bond_perpdex.signing import canonical_form
+from bond_perpdex_client import BondPerpDexClient, Quote, websocket_order_place
+from bond_perpdex_client.offline import NOW_MS, OfflineVenue, demo_identity
+from bond_perpdex_client.signing import canonical_form
 
 
 def main() -> None:

@@ -3,7 +3,7 @@
 import argparse
 from contextlib import closing
 
-from bond_perpdex import BondPerpDexClient, TestnetConfig, TestnetTransport, WalletSigner
+from bond_perpdex_client import BondPerpDexClient, TestnetConfig, TestnetTransport, WalletSigner
 
 
 def main() -> None:

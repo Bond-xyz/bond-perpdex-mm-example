@@ -22,15 +22,15 @@ bot-key header signature.
 | Step | Run or read | Network and effect |
 | --- | --- | --- |
 | 1. Sign an order | `examples/01_signing_offline.py` | None; synthetic fixture only. |
-| 2. Inspect public data | `.venv/bin/python -m bond_perpdex --testnet-read-only` | Public REST and WebSocket reads. |
+| 2. Inspect public data | `.venv/bin/python -m bond_perpdex_client --testnet-read-only` | Public REST and WebSocket reads. |
 | 3. Sign in, read, optionally place/cancel | `examples/02_private_rest.py --help` | SIWE sign-in and private reads; `--place` sends one order. |
 | 4. Subscribe to private updates | `examples/03_private_stream.py --help` | SIWE sign-in and bounded private stream; no orders. |
 | 5. Use an existing bot key | `examples/04_provisioned_key_read.py` | One private REST account read; no orders. |
 
 The scripts are separate so a reader can follow one protocol layer at a time.
-The reusable client lives in `src/bond_perpdex/`; the maker strategy is an
-independent offline demonstration in `python -m bond_perpdex`.
-`bond_perpdex` is this repository's Python import name, not an official
+The reusable client lives in `src/bond_perpdex_client/`; the maker strategy is an
+independent offline demonstration in `python -m bond_perpdex_client`.
+`bond_perpdex_client` is this repository's Python import name, not an official
 `bond-sdk` package. The installable project is named `bond-perpdex-mm-example`.
 
 The client code follows the same boundaries: `client_session.py` owns sign-in

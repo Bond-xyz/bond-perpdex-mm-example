@@ -5,18 +5,18 @@ import json
 import pytest
 from cryptography.exceptions import InvalidSignature
 
-from bond_perpdex import (
+from bond_perpdex_client import (
     BondPerpDexClient,
     SafetyError,
 )
-from bond_perpdex import (
+from bond_perpdex_client import (
     TestnetConfig as Config,
 )
-from bond_perpdex import (
+from bond_perpdex_client import (
     TestnetTransport as LiveTransport,
 )
-from bond_perpdex.client import Session
-from bond_perpdex.offline import NOW_MS, demo_identity
+from bond_perpdex_client.client import Session
+from bond_perpdex_client.offline import NOW_MS, demo_identity
 
 EXECUTION = {
     "e": "executionReport",
@@ -121,8 +121,8 @@ def setup_stream(monkeypatch, plans):
         calls.append(url)
         return next(pending)
 
-    monkeypatch.setattr("bond_perpdex.transport.connect", connect)
-    monkeypatch.setattr("bond_perpdex.user_stream.time.sleep", lambda _: None)
+    monkeypatch.setattr("bond_perpdex_client.transport.connect", connect)
+    monkeypatch.setattr("bond_perpdex_client.user_stream.time.sleep", lambda _: None)
     return client, sockets, calls
 
 

@@ -8,7 +8,7 @@ No market price is supplied by the example: the operator must choose one.
 import argparse
 from decimal import Decimal
 
-from bond_perpdex import (
+from bond_perpdex_client import (
     BondPerpDexClient,
     Quote,
     SafetyError,

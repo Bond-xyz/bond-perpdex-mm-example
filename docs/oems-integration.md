@@ -112,7 +112,7 @@ Two credential families coexist:
 | SIWE wallet session (`x-api-key` plus Ed25519 account signature) | Examples 02–03, private WebSocket logon, and key management | Server returns `expires_at`; the client keeps token and Ed25519 key only in memory. A new sign-in can replace the old token. The configured legacy lifetime in the inspected source is 30 days; use the response expiry as authority. No automatic renewal is implemented here. |
 | Provisioned bot key (`x-bond-api-key` plus Ed25519 `x-bond-signature`) | Scoped private REST bot routes; example 04 | It can be reused after restart while its secret and matching Ed25519 key remain available, its optional expiry has not passed, and it has not been revoked or blocked by its IP/scope policy. It is not accepted for private WebSocket logon in the inspected source. |
 
-[`bot_key.py`](../src/bond_perpdex/bot_key.py) shows the provisioned key's
+[`bot_key.py`](../src/bond_perpdex_client/bot_key.py) shows the provisioned key's
 outer signature: `timestamp\nnonce\nMETHOD\npathAndQuery\nsubaccountOrDefault\nsha256hex(rawBody)`.
 The nonce is fresh per request and the timestamp window is 60 seconds in the
 inspected source. Order placement using this credential still needs the

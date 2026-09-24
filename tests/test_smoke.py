@@ -2,9 +2,9 @@ import sys
 
 import pytest
 
-from bond_perpdex.__main__ import main
-from bond_perpdex.models import UnknownOutcome
-from bond_perpdex.offline import OfflineVenue
+from bond_perpdex_client.__main__ import main
+from bond_perpdex_client.models import UnknownOutcome
+from bond_perpdex_client.offline import OfflineVenue
 
 
 def test_no_network_no_transaction_smoke(monkeypatch, capsys):
@@ -23,7 +23,7 @@ def test_no_network_no_transaction_smoke(monkeypatch, capsys):
 def test_shutdown_attempts_all_acknowledged_cancels_even_when_one_is_unknown(monkeypatch):
     venue = OfflineVenue()
     venue.fail_cancel = True
-    monkeypatch.setattr("bond_perpdex.__main__.OfflineVenue", lambda: venue)
+    monkeypatch.setattr("bond_perpdex_client.__main__.OfflineVenue", lambda: venue)
     monkeypatch.setattr(sys, "argv", ["bond-perpdex"])
     with pytest.raises(UnknownOutcome, match="2 orders"):
         main()

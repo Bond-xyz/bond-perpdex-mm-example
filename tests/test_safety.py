@@ -3,20 +3,20 @@ from decimal import Decimal
 
 import pytest
 
-from bond_perpdex import (
+from bond_perpdex_client import (
     BondPerpDexClient,
     Quote,
     SafetyError,
     UnknownOutcome,
 )
-from bond_perpdex import (
+from bond_perpdex_client import (
     TestnetConfig as Config,
 )
-from bond_perpdex import (
+from bond_perpdex_client import (
     TestnetReadOnlyTransport as ReadOnly,
 )
-from bond_perpdex.models import PreparedRequest
-from bond_perpdex.offline import demo_identity
+from bond_perpdex_client.models import PreparedRequest
+from bond_perpdex_client.offline import demo_identity
 
 
 def intent_for(connected, **kwargs):

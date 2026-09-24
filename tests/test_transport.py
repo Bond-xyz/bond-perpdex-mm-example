@@ -3,10 +3,10 @@ import json
 import httpx
 import pytest
 
-from bond_perpdex import BondPerpDexClient, SafetyError
-from bond_perpdex import TestnetReadOnlyTransport as ReadOnly
-from bond_perpdex.models import PreparedRequest
-from bond_perpdex.offline import DEPTH_FRAME, EXCHANGE_INFO
+from bond_perpdex_client import BondPerpDexClient, SafetyError
+from bond_perpdex_client import TestnetReadOnlyTransport as ReadOnly
+from bond_perpdex_client.models import PreparedRequest
+from bond_perpdex_client.offline import DEPTH_FRAME, EXCHANGE_INFO
 
 
 def install_http_mock(monkeypatch, handler):
@@ -16,7 +16,7 @@ def install_http_mock(monkeypatch, handler):
         assert kwargs == {"timeout": 5, "follow_redirects": False, "trust_env": False}
         return real_client(transport=httpx.MockTransport(handler), **kwargs)
 
-    monkeypatch.setattr("bond_perpdex.transport.httpx.Client", client)
+    monkeypatch.setattr("bond_perpdex_client.transport.httpx.Client", client)
 
 
 def test_public_http_exact_origin_and_shape(monkeypatch):
@@ -70,7 +70,7 @@ def test_websocket_subscription_ack_and_wrapped_depth(monkeypatch):
         assert kwargs["proxy"] is None and kwargs["max_queue"] == 16
         return Socket()
 
-    monkeypatch.setattr("bond_perpdex.transport.connect", connect)
+    monkeypatch.setattr("bond_perpdex_client.transport.connect", connect)
     assert list(ReadOnly().depth_events("BTCUSDCPERP")) == [DEPTH_FRAME]
 
 
@@ -81,7 +81,7 @@ def test_websocket_disconnect_propagates_without_reconnect(monkeypatch):
         calls.append(args)
         raise ConnectionError("simulated disconnect")
 
-    monkeypatch.setattr("bond_perpdex.transport.connect", connect)
+    monkeypatch.setattr("bond_perpdex_client.transport.connect", connect)
     with pytest.raises(ConnectionError):
         list(ReadOnly().depth_events("BTCUSDCPERP"))
     assert len(calls) == 1

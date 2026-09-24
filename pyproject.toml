@@ -18,7 +18,7 @@ dependencies = [
 dev = ["pytest==8.4.2", "ruff==0.12.12"]
 
 [tool.setuptools.package-data]
-bond_perpdex = ["py.typed"]
+bond_perpdex_client = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
