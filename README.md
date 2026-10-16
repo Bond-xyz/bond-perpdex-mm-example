@@ -1,97 +1,115 @@
 # BondPerpDEX OEMS integration examples
 
-Small Python examples for **Galileo testnet (chain 16602)**. Start with the
-no-network signing example, then choose the credential and transport you need.
-This repository is reference code, not a published SDK or proof that a live
-account can currently trade. The private examples make real requests when run.
+Small Python examples for **Galileo testnet (chain 16602)**, aligned with
+[super-app #897](https://github.com/Bond-xyz/bond-super-app/pull/897) and
+[#898](https://github.com/Bond-xyz/bond-super-app/pull/898). Start offline.
+Private examples make real requests; order writes require explicit permission.
+This is reference source, not a published SDK or an unattended market maker.
 
-## Start here
+## Start offline
 
 Python 3.12+ and a POSIX shell are required.
 
 ```sh
 sh install.sh
 .venv/bin/python examples/01_signing_offline.py
+.venv/bin/python -m bond_perpdex_client
+.venv/bin/python examples/04_provisioned_key_headers.py
 ```
 
-The first script prints a synthetic SIWE message and Vertex order envelope.
-It shows the **wallet EIP-712 signature** and **Ed25519 account signature**
-without sending a request. Example 04 covers the separate provisioned
-bot-key header signature.
+These commands send no requests. The signing vector and offline maker use
+synthetic contracts and public simulation identities. They are never live defaults.
+The installable project is `bond-perpdex-mm-example`; its Python import is
+`bond_perpdex_client`.
 
-| Step | Run or read | Network and effect |
-| --- | --- | --- |
-| 1. Sign an order | `examples/01_signing_offline.py` | None; synthetic fixture only. |
-| 2. Inspect public data | `.venv/bin/python -m bond_perpdex_client --testnet-read-only` | Public REST and WebSocket reads. |
-| 3. Sign in, read, optionally place/cancel | `examples/02_private_rest.py --help` | SIWE sign-in, account and position reads; `--place` sends one order. |
-| 4. Subscribe to private updates | `examples/03_private_stream.py --help` | SIWE sign-in and bounded private stream; no orders. |
-| 5. Use an existing bot key | `examples/04_provisioned_key_read.py` | One private REST account read; no orders. |
+| Example | Purpose and effect |
+| --- | --- |
+| `01_signing_offline.py` | Synthetic SIWE, wallet EIP-712 order, Ed25519 account signature and a WebSocket order frame; no network. |
+| `02_private_rest.py` | SIWE account reads; `--place` additionally sends one REST order and attempts cancellation. |
+| `03_private_stream.py` | Timestamp-bound `userDataStream.subscribe.signature`; bounded private events, no orders. |
+| `04_provisioned_key_headers.py` | Synthetic managed-key writer REST headers; no credentials read and no network. |
+| `python -m bond_perpdex_client --testnet-read-only` | Public exchangeInfo, depth and bounded market-stream reads; no credentials or orders. |
 
-The scripts are separate so a reader can follow one protocol layer at a time.
-The reusable client lives in `src/bond_perpdex_client/`; the maker strategy is an
-independent offline demonstration in `python -m bond_perpdex_client`.
-`bond_perpdex_client` is this repository's Python import name, not an official
-`bond-sdk` package. The installable project is named `bond-perpdex-mm-example`.
+## Select your account and retain its credentials
 
-The client code follows the same boundaries: `client_session.py` owns sign-in
-and signed transport, `client_account.py` owns reads and reconciliation,
-`client_orders.py` owns order commands, `user_stream.py` owns subscription
-lifecycle, and `client.py` preserves one small public facade. `signing.py`
-builds wallet and account signatures; `bot_key.py` builds the separate
-provisioned-key HTTP headers.
+The website enables trading and deposits into each wallet's **`bond`** subaccount.
+A maker can use **`tradegods-z`** instead. Names are scoped to the owner wallet,
+not globally reserved; a new name has separate balances. Live sign-in requires
+an explicit name and persistent Ed25519 key. It never silently selects `bond`.
 
-## Direct answers for OEMS integrators
+Provision the owner wallet through `BOND_TESTNET_WALLET_KEY` in your secret manager.
+Create an Ed25519 PKCS#8 PEM through your key manager, retain it outside this repo,
+and restrict its permissions to `0600`. Then run:
 
-1. **Order signing:** The documented Galileo perp order path requires a
-   `signedOrder` Vertex EIP-712 envelope as well as an Ed25519 account request
-   signature. Ed25519 alone does not authorize a release-bound perp order.
-   REST `POST /fapi/v1/order` is implemented here; side-effect-free
-   `websocket_order_place()` shows the equivalent `order.place` request shape.
-   WebSocket order transmission has not been live-verified by this repository.
-2. **Binance compatibility:** Route names and selected fields are familiar, but
-   private payloads and authentication are Bond-specific. See
-   [event and response examples](docs/oems-integration.md#2-binance-compatibility-and-fees).
-   The current engine models nonnegative execution fees in `USDC.e`; this
-   example does not claim negative maker rebates.
-3. **Authentication:** The SIWE wallet session used for private WebSocket and
-   examples 02–03 is distinct from a provisioned REST bot key. The latter can
-   be reused across process restarts while valid and not revoked, provided its
-   Ed25519 key is retained securely. This package does not persist credentials.
-4. **Rate limits:** `exchangeInfo` does not describe every applicable layer.
-   See [rate limits](docs/oems-integration.md#4-rate-limits) for the bot-key,
-   IP, and WebSocket limits and what is actually metered.
+```sh
+.venv/bin/python examples/02_private_rest.py \
+  --subaccount tradegods-z --ed25519-key /secure/galileo-ed25519.pem \
+  --session-file /secure/galileo.session.json
 
-The [OEMS integration guide](docs/oems-integration.md) gives exact signing
-fields, credential lifetimes, sanitized source-derived frames, and verification
-limits. The [protocol reference](docs/protocol.md) holds implementation details.
+.venv/bin/python examples/03_private_stream.py \
+  --subaccount tradegods-z --ed25519-key /secure/galileo-ed25519.pem \
+  --session-file /secure/galileo.session.json --max-events 5
+```
 
-## Operating boundaries
+The optional session file securely caches the token, account UUID, public-key
+identity and expiry; it contains no private key. A matching valid session is
+checked with `/auth/me` and reused across restarts. At **24 hours or less** before
+expiry, this explicit startup/renewal call signs in again with the persistent key.
+A reader error or identity mismatch stops execution without replacing credentials.
+Without `--session-file`, every run signs in again and replaces the prior token.
 
-- Real private access must be explicitly enabled in code; real order writes
-  additionally require `allow_live_orders=True`. Scripts 02–03 use a dedicated
-  testnet wallet key supplied as `BOND_TESTNET_WALLET_KEY` by a secret manager.
-  Script 04 reads existing `BOND_BOT_API_KEY` and
-  `BOND_BOT_ED25519_PRIVATE_KEY_PEM`; it never creates a key.
-- A lost submit or cancel acknowledgement is an **unknown outcome**, not a
-  reason to send the mutation again. Query and reconcile venue state.
-  Reconnect does not replay missed private events. The client has no durable
-  journal, so it is not an unattended market maker.
-- The example contract and VirtualBook registry come from `bond-perpdex`
-  revision `34869838ed5588f6a4686f6663e824212287ddb3`. Check the deployed
-  environment and current source before live use.
-- A supervised 2026-09-24 test confirmed SIWE sign-in, private account reads,
-  and a private WebSocket subscription. The test wallet had no PerpDEX account
-  record; public market routes returned `503 CAPABILITY_UNAVAILABLE`. No order
-  was submitted. See [live verification](docs/oems-integration.md#live-verification-2026-09-24).
+Use one renewal owner per subaccount. Close streams, pause submissions and reconcile
+pending/uncertain commands before renewal, then reconnect, subscribe and reconcile
+REST state. There is no automatic daemon renewal or replay. Protect the cache's
+parent directory; do not commit, log or back up credentials.
 
-## Checks
+## Supply current signing context before trading
+
+There are **no hardcoded live VirtualBooks**. Obtain the operator-verified
+[canonical Galileo manifest](https://github.com/Bond-xyz/bond-shared-registry/blob/main/envs/og-testnet-staging/perpdex.json)
+from Bond, confirm it matches the deployed contract set, and save a local copy.
+Repository access may be required. `exchangeInfo` supplies filters, not the numeric
+product-ID/VirtualBook mapping. A registry file is explicit input, not proof of
+its own deployment validity. Refresh it after rotations.
+
+Only after funding the chosen subaccount and choosing price/size, append these
+arguments to example 02 (the environment values must be operator supplied):
+
+```sh
+--place --side BUY --price "$BOND_LIMIT_PRICE" --quantity "$BOND_ORDER_QUANTITY" \
+--registry /secure/perpdex.local.json --rpc-url "$BOND_GALILEO_RPC_URL"
+```
+
+Live order preparation checks Galileo RPC chain identity and reads the verified
+Endpoint's `getTime()` for signed expiry. The client validates live precision,
+tick/step/notional filters and its configured risk bounds. Orders can execute.
+No deposits are implemented; the website cannot select a named account to fund.
+See [funding and all six integration answers](docs/oems-integration.md).
+
+## Deployment limits
+
+- Use SIWE sessions for private events and the full OEMS read/trade flow. Managed
+  `x-bond-api-key` credentials remain REST-only; current public account-reader
+  routes require SIWE. Example 04 therefore demonstrates headers offline.
+- Galileo's public **REST cancel-all returns 405**. Live `cancel_all()` sends a signed
+  WebSocket `openOrders.cancelAll` instead. Cancel-one remains signed REST. Both
+  carry a distinct cancellation receipt key; no mutation is automatically replayed.
+- The 120-per-minute managed-key counter does not apply to SIWE requests. Trading
+  WebSocket commands have no implemented fixed command counter or shared REST/WS
+  command counter in the inspected backend. Capacity and admission still apply.
+  See [exact limits](docs/oems-integration.md#5-which-rate-limits-apply).
+
+## Checks and evidence
 
 ```sh
 .venv/bin/ruff format --check src tests examples
 .venv/bin/ruff check src tests examples
 .venv/bin/pytest -q
 .venv/bin/python examples/01_signing_offline.py
+.venv/bin/python -m pip check
 ```
 
-Tests use blocked sockets/DNS and mocked transports. They verify signing
-vectors and request shapes, not live admission, fills, fees, or deployment.
+Tests block sockets/DNS and use mock transports. Source/runtime checks on
+16 October 2026 bind the guidance to backend `df07bef07f7e6098861fae2a8435132aadff11a4`;
+see [verification](docs/oems-integration.md#verification). Funded admission, fills,
+fees and sustained throughput are not established by offline tests.

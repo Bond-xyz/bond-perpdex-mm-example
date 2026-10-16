@@ -15,11 +15,12 @@ From the project directory, run:
 
 This makes real public testnet requests: it fetches `exchangeInfo` and a depth
 snapshot, receives one acknowledged WebSocket depth event, and exits. It requires
-no credentials and sends no orders. It is not the offline smoke test. A
-2026-09-24 live attempt stopped at `exchangeInfo` because the public market
-routes returned `503 CAPABILITY_UNAVAILABLE`. HTTP and WebSocket URLs are exact
-allowlists from the source runtime registry. Redirects and environment proxies are disabled, with
-bounded timeouts and message sizes.
+no credentials and sends no orders. It does not need a signing registry because
+it does not select an EIP-712 domain. Public health/market/status reads returned
+200 on 16 October 2026. HTTP/WS venue URLs remain exact allowlists; redirects and
+environment proxies are disabled, with bounded timeouts and message sizes.
+HTTPS and WSS use certificate/hostname verification and the HTTP client's trusted
+CA roots, including on Python installations without system CA certificates.
 
 ## Transport permissions
 
@@ -36,14 +37,16 @@ not implemented.
 
 ## Explicitly enable the sample client's testnet access
 
-**These snippets make real requests if you run them.** Sign-in, private reads,
-and private subscription were run on 2026-09-24; no order mutation was run.
+**These snippets make real requests if you run them.** Use the current
+[verification notes](oems-integration.md#verification) for observed behavior;
+funded order acceptance has not been established.
 Use a separately provisioned, dedicated testnet wallet/subaccount.
 Inject `BOND_TESTNET_WALLET_KEY` (32-byte hex) through your secret manager into the
 process environment. Do not paste a key into a shell command, configuration file,
-source file, notebook, or chat. No `.env` loading or credential persistence exists.
-The wallet, fresh Ed25519 private session key, and resulting API token stay in
-memory; Python cannot promise secure zeroization. Never enable debug wire logging.
+source file, notebook, or chat. No `.env` loading is performed. Retain the
+Ed25519 key in a separate owner-only PEM; an optional owner-only session cache
+stores the token, expiry and public identity, never the private key. Python
+cannot promise secure zeroization. Never enable debug wire logging.
 
 Authentication and private reads/notifications are independently enabled from
 order mutations:
@@ -51,12 +54,14 @@ order mutations:
 ```python
 from contextlib import closing
 
-from bond_perpdex_client import BondPerpDexClient, TestnetConfig, TestnetTransport, WalletSigner
+from bond_perpdex_client import (BondPerpDexClient, TestnetConfig, TestnetTransport,
+                                 WalletSigner, load_ed25519_private_key)
 
 config = TestnetConfig(allow_live_private=True, allow_live_orders=False)
 client = BondPerpDexClient(TestnetTransport(config))
 wallet = WalletSigner.from_environment()
-client.authenticate(wallet, subaccount="bond")
+key = load_ed25519_private_key("/secure/galileo-ed25519.pem")
+client.authenticate_cached(wallet, key, "tradegods-z", "/secure/galileo.session.json")
 snapshot = client.reconcile_account("BTCUSDCPERP")
 
 with closing(client.user_events(max_events=20, max_reconnects=2)) as notifications:
@@ -65,19 +70,23 @@ with closing(client.user_events(max_events=20, max_reconnects=2)) as notificatio
             snapshot = client.reconcile_account("BTCUSDCPERP")
 ```
 
-`authenticate()` performs real `GET /auth/nonce` and `POST /auth/signin`, generating
-an Ed25519 key unless one is supplied explicitly. An ambiguous sign-in clears the
-old local session and halts commands: sign-in can replace a server credential, so
-there is no automatic SIWE refresh or retry. Session expiry stops private calls
-and stream reconnects. You must explicitly decide when to establish a new session.
+`authenticate()` requires an explicit live name and signing key, then performs
+`GET /auth/nonce` and `POST /auth/signin`. An ambiguous sign-in clears the old
+local session and halts commands; there is no retry. `authenticate_cached()`
+reuses a matching, validated token or renews explicitly when 24 hours or less
+remain. Reader failure does not replace credentials. Session expiry stops private
+calls and stream reconnects. Coordinate one renewal owner; see the OEMS guide.
 
 To enable **real order writes**, deliberately construct the client with both
 permissions true, for example:
 
 ```python
+from bond_perpdex_client import SigningRegistry
+
 config = TestnetConfig(
     allow_live_private=True,
     allow_live_orders=True,
+    signing_registry=SigningRegistry.from_file("/secure/perpdex.local.json"),
     max_order_notional="200",
     max_position="0.010",
     max_open_orders=2,
@@ -88,16 +97,18 @@ After creating/authenticating that client, the reusable methods are:
 
 ```python
 from decimal import Decimal
-from bond_perpdex_client import Quote
+from bond_perpdex_client import Quote, read_endpoint_time
 
 market = client.market("BTCUSDCPERP")
-intent = client.prepare_order(wallet, market, Quote("BUY", Decimal("64939.9"), Decimal("0.002")))
+endpoint_time = read_endpoint_time(verified_galileo_rpc_url, config.signing_registry)
+intent = client.prepare_order(wallet, market,
+    Quote("BUY", operator_price, operator_quantity), endpoint_time=endpoint_time)
 ack = client.submit_order(intent)
 cancel_ack = client.cancel_order(market, ack["orderId"])
 terminal = client.query_order(market.symbol, order_id=ack["orderId"])
 ```
 
-The price above is illustrative, **not a recommended or current live quote**.
+Supply operator-selected Decimal price/quantity and a verified Galileo RPC URL.
 Use fresh market data and review testnet identity/collateral before executing.
 `prepare_order()` signs but does not submit; `submit_order()` performs signed REST
 position/open-order reads immediately before the one POST. It rejects stale
@@ -125,10 +136,12 @@ whole-symbol sweep is separately explicit:
 cancelled = client.cancel_all("BTCUSDCPERP", confirm_all_for_symbol=True)
 ```
 
-This sends **DELETE `/fapi/v1/openOrders`**, with signed `symbol`, timestamp,
-recvWindow and a UUID `newClientOrderId`; it does not use Binance's
-`/allOpenOrders`. It cancels **all orders on that symbol for the authenticated
-subaccount**, not merely this bot's orders. Call only when that scope is intended.
+On live Galileo this sends signed WebSocket **`openOrders.cancelAll`**, with
+`symbol`, timestamp, recvWindow, UUID `newClientOrderId`, signature and SIWE
+`apiKey`. The backend REST `DELETE /fapi/v1/openOrders` exists, but the public
+gateway routes it to a GET-only reader and returns 405. There is no REST fallback.
+The offline fixture retains the backend form semantics without network access.
+Cancel-all affects every order on that symbol in the authenticated subaccount.
 You may supply `client_order_id` to `cancel_order`/`cancel_all` so the command
 receipt key is known before execution. No mutation is retried. Ambiguous responses
 set `halted`, retain the original request under its ID in `uncertain_commands`,
@@ -138,29 +151,14 @@ an unknown-command halt. State is in memory: do not restart to bypass that halt.
 
 ### Private WebSocket behavior and source caveats
 
-`user_events()` uses the separately pinned
-`wss://perpdex-testnet.bond.xyz/ws-fapi/v1`, performs `session.logon`, then
-`userDataStream.subscribe`, and correlates each response by its string `id`.
-The current source has a nonstandard logon signing contract:
-
-```text
-wire params: {apiKey, timestamp, recv_window: "5000", signature}
-Ed25519 signed bytes: recvWindow=5000
-```
-
-`SessionLogonParams` deserializes the **snake_case** `recv_window`; its `to_map()`
-contains only camelCase `recvWindow`. **Neither timestamp nor apiKey is signed by
-this method**, although the server separately validates timestamp and the API key.
-This is a source security limitation, not a recommended design. The example
-reproduces it rather than inventing a more secure but incompatible signature.
-Use only the exact TLS testnet endpoint, protect both session token and signatures,
-and re-review this behavior if the server changes. It differs from
-`userDataStream.subscribe.signature`, which is not used here.
-
-Plain `userDataStream.subscribe` sends `params: {}` after logon and obtains
-`result.subscriptionId`. Events are `{subscriptionId, event: {...}}`. The client
-buffers a bounded number of events that race the subscribe acknowledgement and
-validates the subscription ID after the acknowledgement. Actual event variants:
+`user_events()` connects to the exact trading endpoint
+`wss://perpdex-testnet.bond.xyz/ws-fapi/v1` and sends
+`userDataStream.subscribe.signature`. Ed25519 signs sorted
+`recvWindow=5000&timestamp=<Unix-ms>`; `apiKey` and `signature` are excluded.
+No session.logon or unsigned subscribe is used. Each acknowledgement is correlated
+by its string `id`; the result supplies `subscriptionId`. Events instead have
+`{subscriptionId, event: {...}}`. The client buffers a bounded number of events
+that race the acknowledgement and validates their subscription ID. Event variants:
 
 - `executionReport`: `e`, `E`, global `I`, symbol `s`, order UUID `i`, transition
   `x` (`TRADE`/`CANCELED`/`REJECTED`), status `X`, and source quantity/price fields.
@@ -180,7 +178,7 @@ silently dropped. These cases emit reconciliation-required notices. The sample c
 server event dictionaries; it never invents server frames or sequence epochs.
 
 Disconnect, idle timeout, and explicit termination permit only a bounded reconnect
-(default two, hard maximum three) with capped backoff, fresh WS logon and new
+(default two, hard maximum three) with capped backoff, a fresh signed
 subscription. There is **no resume cursor, replay, automatic REST mutation, or
 automatic SIWE renewal**. RPC errors, malformed events, and expired sessions fail
 closed rather than retry credentials. Known/unknown command state is never reset
@@ -197,35 +195,36 @@ The signing and wallet-session implementation was pinned to the local
 `bond-perpdex` implementation at:
 
 ```text
-34869838ed5588f6a4686f6663e824212287ddb3
+df07bef07f7e6098861fae2a8435132aadff11a4
 ```
 
-Source anchors below are relative to that repository, available alongside this
-project directory at `../bond-perpdex`. No documentation from another exchange, generic
-Binance SDK, external registry, or guessed deployment was used as authority.
+Source anchors below are relative to `Bond-xyz/bond-perpdex` at that revision.
+The canonical signing-address authority is `Bond-xyz/bond-shared-registry`;
+operators must verify its Galileo manifest against the active release. Source
+signing fixtures are synthetic and never select live addresses.
 
 | Behavior | Source anchor at the pinned revision |
 | --- | --- |
-| SIWE message layout, wallet personal-sign, Ed25519 public PEM, `secret_type`, `secret_key` | `services/trading/client/src/client.rs::signin_with_options` (lines 353–413); `services/mm-bot/src/auth.rs` (lines 110–146) |
+| SIWE message layout, wallet personal-sign, Ed25519 public PEM, `secret_type`, `secret_key` | `services/trading/client/src/client.rs::signin_with_options`; `services/mm-bot/src/auth.rs` |
 | `GET /auth/nonce`, `POST /auth/signin`, response `api_key`, `expires_at`, `id` | `services/trading/src/api/auth.rs`; `services/trading/src/models/auth.rs` |
 | Sorted form canonicalization, null omission, URL form encoding | `services/trading/src/util/common.rs::build_query_string`; `services/trading/src/models/trading.rs::OrderRequest::to_map` |
-| Nested `signedOrder` compact JSON, source browser percent-encoding vector | `services/trading/src/models/trading.rs::browser_sorted_form_golden_binds_explicit_reduce_only_values` (line 1656 onward); `services/trading/src/api/order_request.rs` |
+| Nested `signedOrder` compact JSON, source browser percent-encoding vector | `services/trading/src/models/trading.rs::browser_sorted_form_golden_binds_explicit_reduce_only_values`; `services/trading/src/api/order_request.rs` |
 | Legacy session `x-api-key` and base64 Ed25519 signature over canonical form | `services/trading/client/src/client.rs::ed25519_sign`, `new_perp_order_signed`, `submit_prepared_perp_command`, `post_signed` |
 | Vertex schema, integer strings, hashes and signature recovery | `core/types/src/signed_intent.rs::VertexEip712Domain`, `VertexOrder`, `SignedOrderEnvelope`; `services/settlement/tests/fixtures/signed_intent_vectors.json` |
 | POST_ONLY expiration bits and low-s ECDSA | `tools/loadgen/src/sign.rs::SignedOrderKind`, `sign_vertex_order`; `core/orderbook-rs/src/orders/provenance.rs::VertexOrderSemantics` |
-| Authenticated sender, canonical chain/book, contract time and size-increment checks | `services/trading/src/service/engine/order.rs::validate_signed_order_context` (line 436); `authenticated_subaccount` (line 486) |
+| Authenticated sender, canonical chain/book, contract time and size-increment checks | `services/trading/src/service/engine/order.rs::validate_signed_order_context`; `authenticated_subaccount` |
 | POST_ONLY requires GTC; LIMIT+GTX normalization | `services/trading/src/models/trading.rs`; `services/trading/src/handler/trading.rs::new_order` |
 | POST and form DELETE `/fapi/v1/order` | `services/trading/src/api/perp/trading.rs`; `CancelOrderRequest::to_map` in `models/trading.rs` |
-| Ordinary single-cancel status omission versus cancel-all terminal status | `services/trading/src/service/engine/order.rs::build_cancel_order_outcome` (around line 3424); `build_cancel_open_orders_outcome` (around line 3775) |
+| Ordinary single-cancel status omission versus cancel-all terminal status | `services/trading/src/service/engine/order.rs::build_cancel_order_outcome`; `build_cancel_all_outcome` |
 | Signed `openOrders` and `positionRisk` reads | `services/trading/src/api/perp/account.rs`; `services/trading/src/models/account.rs::QueryOpenOrdersRequest`, `PositionInformationParams` |
 | Cancel-all form fields and route | `services/trading/src/models/trading.rs::CancelOpenOrdersRequest`; `services/trading/src/api/perp/trading.rs::router` |
-| Private WS logon signing asymmetry and timestamp verification | `services/trading/src/models/session.rs::SessionLogonParams`; `services/trading/src/handler/ws.rs::process_session_logon`; `services/trading/src/util/security.rs::validate_request` |
+| Private signed subscription and timestamp verification | `services/trading/src/models/ws.rs`; `services/trading/src/handler/ws.rs`; `services/trading/src/util/security.rs::validate_request` |
 | Private subscription response, event fields, and sparse account converter | `services/trading/src/handler/ws.rs::process_data_stream_subscribe`; `services/trading/src/models/ws.rs` |
 | Private global sequence allocation, best-effort delivery and termination | `services/trading/src/service/execution_report.rs::emit`; `services/trading/src/service/user_data_stream.rs::route_events`, `terminate_subscription` |
 | Market IDs, precision, tick/step, minimum notional | `core/types/src/symbol.rs` (BTC starts at line 278); `services/market-data/src/api.rs` |
 | WS SUBSCRIBE/ack/envelope and depth sequence fields | `services/market-data/src/wss_api.rs::a_depth_subscription_acknowledges_and_relays_real_frames`; `services/market-data/core/src/models/wss.rs::DiffBookDepthResponse` |
 | Absolute wire depth quantities, zero removals, `U/u/pu` gaps | `services/market-data/core/src/handler/depth.rs::DepthPendingPublish::into_diff_book_depth_response`, `Depth::update_depth`; `services/market-data/src/wss_api.rs::the_real_publisher_delivers_depth_frames_to_a_subscribed_socket` |
-| Testnet endpoint, chain and current VirtualBooks | `platform/bond-config/src/generated.rs`; `deploy/environments/staging-adoption/runtime-registry.json` |
+| Testnet endpoint, chain and current VirtualBooks | `platform/bond-config/src/generated.rs`; the active release registry binding and `bond-shared-registry/envs/og-testnet-staging/perpdex.json` |
 | Existing MM lifecycle, unknown-result and restart concerns | `services/mm-bot/src/bot.rs`, `journal.rs`, `signed_order.rs`, `continuity.md` |
 
 The packaged `tests/fixtures/order-vector.json` is the **order** object extracted
@@ -241,9 +240,11 @@ The implemented signing sequence is:
    with secp256k1/EIP-191, binding the generated Ed25519 public key in its statement.
    The response establishes a session. SIWE nonce is **not** an order nonce.
 2. Encode `sender = owner_address || subaccount_name_right_padded_to_12_bytes`.
-   This example intentionally accepts only 1–12 ASCII alphanumeric name bytes.
+   This example intentionally accepts only 1–12 printable ASCII name bytes without spaces.
 3. Sign `Order(bytes32 sender,int128 priceX18,int128 amount,uint64 expiration,uint64 nonce)`
-   with EIP-712 domain `Vertex`, `0.0.1`, chain 16602 and the registry VirtualBook.
+   with EIP-712 domain `Vertex`, `0.0.1`, chain 16602 and the operator-verified registry VirtualBook. Live callers load
+   `SigningRegistry.from_file` and supply it in `TestnetConfig`; there are no live
+   signing-address defaults. Use `read_endpoint_time` before live order preparation.
    Price uses exact X9 then X18 conversion; base quantity uses precision 8 and X18.
    Sells have negative signed amount. Integers in the envelope are decimal strings.
    POST_ONLY/GTC sets `expiration = (3 << 62) | expiry_seconds`; no reduce-only bit.
@@ -267,7 +268,7 @@ caller-supplied orders. Strategy rounding goes outward to the tick.
 - **Freshness and disconnects:** a snapshot alone is insufficient to quote. A
   contiguous depth event must bridge it; subsequent `pu` values must match. Stale,
   future-dated, malformed, wrong-symbol, crossed, or gapped data clears the book.
-  Duplicates do not renew freshness. No automatic reconnect or stale-book reuse.
+  Duplicates do not renew freshness. No automatic market-book reconnect or stale-book reuse.
   A future online strategy must subscribe/buffer before REST snapshot, resync on
   every gap, and monitor venue health; the optional raw reader does not do this.
 - **Inventory and cancellation:** one quote per permitted side, a hard position
@@ -288,31 +289,27 @@ caller-supplied orders. Strategy rounding goes outward to the tick.
   nonces with per-client reuse checks. The deterministic demo uses 42 and 43 only
   in a fresh in-memory venue. Order nonces are distinct from SIWE challenges,
   timestamps, and the engine's account/position nonces. No sequential “next order
-  nonce” endpoint is invented. Client IDs are UUIDs. State is deliberately not
-  durable: this cannot safely resume trading after restart or coordinate multiple
-  processes. Real methods are for explicitly supervised testnet integration, not
+  nonce” endpoint is invented. Client IDs are UUIDs. Command state is not
+  durable: a session cache does not restore command state or safely resume trading
+  after restart or coordinate multiple processes. Real methods are for explicitly supervised testnet integration, not
   unattended market making.
-- **No inferred capabilities:** the source supports other order types, amend,
-  private WS order commands, transfers, withdrawals, and a newer user-generated
-  API-key scheme; none is implemented here. Private WS session/subscription is
-  implemented, but orders use REST only. POST_ONLY/GTC is not reduce-only. No margin,
-  liquidation, funding, fees, settlement, partial-fill engine, or collateral
-  provisioning is simulated. The mocks validate signatures and
-  wire terms but do not certify venue admission or economic execution.
-- **Deployment uncertainty:** the current staging registry supersedes the older
-  `staging-release` VirtualBook table. The four registry VirtualBook bytecode
-  hashes matched on chain 16602 on 2026-09-24, but market routes were unavailable,
-  so backend order admission was not observed. The server additionally reads Endpoint time and
-  on-chain product size increments during signed ingress; `exchangeInfo` alone
-  does not certify these. SIWE, private account reads, and WebSocket subscription
-  succeeded with a test wallet, but admission, fills, fees and rate limits remain
-  unverified. Re-review the registry and these gates before live trading.
+- **Supported surface:** signed REST placement/cancel-one, signed private
+  subscriptions and WebSocket cancel-all are implemented. A side-effect-free
+  helper builds order.place frames. Other order types, amendments, deposits,
+  transfers and withdrawals are outside this example. POST_ONLY/GTC is not
+  reduce-only. The offline venue does not simulate matching, margin, liquidation,
+  funding, fees or settlement.
+- **Deployment identity:** no historical address table is a live fallback. Load
+  the operator-verified manifest, refresh live filters and read Endpoint time.
+  VirtualBooks may be signing-domain addresses without runtime code. Schema and
+  offline vector checks do not establish funded trading acceptance; see the
+  dated [verification record](oems-integration.md#verification).
 
 ## Checks
 
 ```sh
-.venv/bin/ruff format --check src tests
-.venv/bin/ruff check src tests
+.venv/bin/ruff format --check src tests examples
+.venv/bin/ruff check src tests examples
 .venv/bin/pytest -q
 .venv/bin/pytest -q tests/test_smoke.py
 .venv/bin/python -m bond_perpdex_client
@@ -324,13 +321,8 @@ EIP-712 hashes/recovery and exact form bytes, both signature layers, post-only
 flags, decimal precision, nonce bounds/reuse, testnet and credential guards,
 HTTP/WS transport mocks, redirects/errors without retries, depth freshness/gaps,
 inventory limits, lost submit/cancel acknowledgements, session expiry, and cleanup.
-Real HTTP auth/account/place/cancel/cancel-all paths are exercised through
-`httpx.MockTransport`, and private WS session/signature/events/reconnect paths
-through bounded socket doubles. A separate live run verified only SIWE sign-in,
-private reads, and private WebSocket subscription; see the
-[live verification notes](oems-integration.md#live-verification-2026-09-24).
-The no-transaction smoke invokes the actual CLI with socket access forbidden.
-It is deterministic, needs no secrets, and cannot place a live order.
-
-The repository is published as private source. The checks above remain local
-protocol and mock-transport evidence; the separate live run did not place an order.
+HTTP authentication/account/place/cancel-one and WebSocket subscription/cancel-all
+paths are exercised through bounded mock transports. Credential and registry tests
+cover identity mismatch, renewal boundaries, file permissions and missing context.
+See the dated [verification record](oems-integration.md#verification) for live
+checks. No funded order or fee behavior is inferred from mocks.
