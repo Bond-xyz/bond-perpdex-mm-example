@@ -24,6 +24,8 @@ class SessionVenue:
         self.paths = []
         self.read_error = False
         self.wrong_name = False
+        self.wrong_address = False
+        self.wrong_id = False
 
     def request(self, request):
         self.paths.append(request.path)
@@ -46,8 +48,8 @@ class SessionVenue:
         if request.headers["x-api-key"] != f"test-token-{self.signins}":
             raise SafetyError("HTTP response status 401; no retry")
         return {
-            "id": ACCOUNT_ID,
-            "address": self.wallet.address[2:],
+            "id": "00000000-0000-4000-8000-000000000002" if self.wrong_id else ACCOUNT_ID,
+            "address": "00" * 20 if self.wrong_address else self.wallet.address[2:],
             "name": subaccount_sender(
                 self.wallet.address, "wrong" if self.wrong_name else "tradegods-z"
             )[-24:],
@@ -122,7 +124,7 @@ def test_mismatched_cache_fails_before_network_and_preserves_file(tmp_path, fiel
     assert (path.read_bytes(), len(venue.paths)) == before
 
 
-@pytest.mark.parametrize("failure", ["read_error", "wrong_name"])
+@pytest.mark.parametrize("failure", ["read_error", "wrong_name", "wrong_address", "wrong_id"])
 def test_cached_read_failure_never_silently_replaces_credentials(tmp_path, failure):
     client, venue, wallet, key, path = setup_cache(tmp_path)
     saved = path.read_bytes()
@@ -130,6 +132,29 @@ def test_cached_read_failure_never_silently_replaces_credentials(tmp_path, failu
     with pytest.raises(SafetyError):
         client.authenticate_cached(wallet, key, "tradegods-z", path)
     assert venue.signins == 1 and path.read_bytes() == saved
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("api_key", ""),
+        ("api_key", 5),
+        ("expires_at_ms", True),
+        ("expires_at_ms", "invalid"),
+        ("account_id", None),
+        ("account_id", "malformed"),
+    ],
+)
+def test_malformed_cache_never_signs_in_or_overwrites_credentials(tmp_path, field, value):
+    client, venue, wallet, key, path = setup_cache(tmp_path)
+    data = json.loads(path.read_text())
+    data[field] = value
+    path.write_text(json.dumps(data))
+    before = path.read_bytes(), len(venue.paths)
+    with pytest.raises(SafetyError):
+        client.authenticate_cached(wallet, key, "tradegods-z", path)
+    assert (path.read_bytes(), len(venue.paths)) == before
+    assert venue.signins == 1
 
 
 def test_session_renewal_requires_stream_and_pending_command_quiescence(tmp_path):

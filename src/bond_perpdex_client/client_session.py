@@ -4,12 +4,12 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from .credentials import Session, SessionCache
 from .models import (
     SUPPORTED_SYMBOLS,
     Json,
@@ -21,19 +21,6 @@ from .models import (
 )
 from .signing import WalletSigner, canonical_form, compact, signed_form
 from .transport import TestnetReadOnlyTransport, Transport
-
-
-@dataclass(repr=False)
-class Session:
-    api_key: str = field(repr=False)
-    key: Ed25519PrivateKey = field(repr=False)
-    expires_at_ms: int
-    owner: str
-    subaccount: str
-    account_id: str | None = None
-
-    def needs_renewal(self, now_ms: int) -> bool:
-        return self.expires_at_ms - now_ms <= 86_400_000
 
 
 class SessionClient:
@@ -184,66 +171,27 @@ class SessionClient:
         Call at startup or a coordinated renewal boundary, after closing streams
         and reconciling uncertain commands. This is not a background renewer.
         """
-        from .credentials import read_session_cache, write_session_cache
-        from .signing import subaccount_sender
-
         self._permission()
         if self._stream_connected or self.uncertain_commands or self._pending_cancels:
             raise SafetyError("Close streams and reconcile pending commands before session renewal")
-        expected_name = subaccount_sender(wallet.address, subaccount)[-24:]
-        identity = {
-            "version": 1,
-            "http_url": self.config.http_url,
-            "chain_id": self.config.chain_id,
-            "owner": wallet.address.lower(),
-            "subaccount": subaccount,
-            "public_key": key.public_key().public_bytes_raw().hex(),
-        }
-        cached = read_session_cache(session_file)
-        if cached is not None:
-            if any(cached.get(field) != value for field, value in identity.items()):
-                raise SafetyError(
-                    "Session cache belongs to another wallet, subaccount, key or venue"
-                )
-            expiry = cached.get("expires_at_ms")
-            if (
-                type(expiry) is not int
-                or not isinstance(cached.get("api_key"), str)
-                or not cached["api_key"]
-            ):
-                raise SafetyError("Invalid cached session token or expiry")
-            uuid.UUID(cached["account_id"])
-            candidate = Session(
-                cached["api_key"], key, expiry, wallet.address, subaccount, cached["account_id"]
-            )
-            if not candidate.needs_renewal(self.clock_ms()):
-                me = self._object(
-                    self._send(
-                        PreparedRequest("GET", "/auth/me", "", {"x-api-key": cached["api_key"]})
-                    )
-                )
-                if (
-                    str(me.get("address", "")).removeprefix("0x").lower()
-                    != wallet.address[2:].lower()
-                    or str(me.get("name", "")).removeprefix("0x").lower() != expected_name
-                    or me.get("id") != cached["account_id"]
-                ):
-                    raise SafetyError(
-                        "Cached session identity does not match the configured account"
-                    )
-                self._session = candidate
-                return
-        self.authenticate(wallet, key, subaccount)
-        session = self._active_session()
-        write_session_cache(
+        cache = SessionCache(
             session_file,
-            {
-                **identity,
-                "api_key": session.api_key,
-                "expires_at_ms": session.expires_at_ms,
-                "account_id": session.account_id,
-            },
+            self.config.http_url,
+            self.config.chain_id,
+            wallet.address,
+            subaccount,
+            key,
         )
+        candidate = cache.load()
+        if candidate is not None and not candidate.needs_renewal(self.clock_ms()):
+            me = self._object(
+                self._send(PreparedRequest("GET", "/auth/me", "", {"x-api-key": candidate.api_key}))
+            )
+            cache.validate_identity(me, candidate)
+            self._session = candidate
+            return
+        self.authenticate(wallet, key, subaccount)
+        cache.save(self._active_session())
 
     def _private(self, method: str, path: str, fields: Json) -> PreparedRequest:
         session = self._active_session()
