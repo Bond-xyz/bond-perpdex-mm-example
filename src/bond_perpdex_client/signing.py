@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import re
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
 from urllib.parse import quote_plus
@@ -74,8 +75,9 @@ class WalletSigner:
         self._account = Account.from_key(private_key)
 
     @classmethod
-    def from_environment(cls) -> "WalletSigner":
-        raw = os.environ.get("BOND_TESTNET_WALLET_KEY", "")
+    def from_environment(cls, environment: Mapping[str, str] | None = None) -> "WalletSigner":
+        values = os.environ if environment is None else environment
+        raw = values.get("BOND_TESTNET_WALLET_KEY", "")
         if not re.fullmatch(r"(?:0x)?[0-9a-fA-F]{64}", raw):
             raise SafetyError("BOND_TESTNET_WALLET_KEY must contain a 32-byte testnet wallet key")
         try:

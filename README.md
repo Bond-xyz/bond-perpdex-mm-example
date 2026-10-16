@@ -6,7 +6,29 @@ Small Python examples for **Galileo testnet (chain 16602)**, aligned with
 Private examples make real requests; order writes require explicit permission.
 This is reference source, not a published SDK or an unattended market maker.
 
-## Start offline
+## Quick start with editable defaults
+
+```sh
+./quickstart.sh
+```
+
+This installs dependencies if needed, creates an ignored owner-only `.env`, and
+runs the offline maker with `tradegods-z` and the example strategy/risk defaults.
+Use `./quickstart.sh --show-config` to inspect effective settings. Edit `.env`
+or override values in your process environment to tune the example.
+
+```sh
+BOND_HALF_SPREAD_BPS=20 BOND_QUANTITY=0.003 ./quickstart.sh
+./setup.sh --generate-signing-key
+./quickstart.sh --mode private
+```
+
+Private modes require your wallet credentials. Live trade mode additionally needs
+funding, a verified registry/RPC, an operator-selected price and the explicit
+`--allow-live-orders` flag. The [configuration guide](docs/configuration.md)
+explains every variable, default, consuming module, mode and setup step.
+
+## Individual examples
 
 Python 3.12+ and a POSIX shell are required.
 

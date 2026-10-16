@@ -10,3 +10,6 @@ config.local.json
 # Local credentials and verified runtime manifests
 *.session.json
 perpdex.local.json
+
+# Quick-start generated credentials and session state
+.local/
