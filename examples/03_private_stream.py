@@ -26,6 +26,9 @@ def main() -> None:
         help="Optional owner-only session cache; renew within 24 hours of expiry",
     )
     parser.add_argument("--max-events", type=int, default=5)
+    parser.add_argument(
+        "--idle-timeout", type=float, default=5, help="Seconds to wait for an event (1–60)"
+    )
     args = parser.parse_args()
 
     config = TestnetConfig(allow_live_private=True)
@@ -36,7 +39,11 @@ def main() -> None:
         client.authenticate_cached(wallet, key, args.subaccount, args.session_file)
     else:
         client.authenticate(wallet, key, args.subaccount)
-    with closing(client.user_events(max_events=args.max_events, max_reconnects=0)) as messages:
+    with closing(
+        client.user_events(
+            max_events=args.max_events, max_reconnects=0, idle_timeout=args.idle_timeout
+        )
+    ) as messages:
         for message in messages:
             if message.kind == "connected":
                 print(f"Subscription acknowledged: {message.subscription_id}")

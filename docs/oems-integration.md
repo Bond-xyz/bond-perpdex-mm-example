@@ -209,4 +209,20 @@ or hostname checks were disabled. No deposits or order placements were made.
 Local tests use blocked sockets/DNS and mocked HTTP/WebSocket transports.
 They verify cryptographic vectors, named accounts, registry loading, credential
 reuse/renewal and restricted files, cancellation receipts and unknown outcomes.
-They do not establish funded admission, fills, fees or sustained throughput.
+
+The actual REST and stream CLI scripts were then run as `tradegods-z`, including
+cache reuse and renewal. A separate retained test wallet received an on-chain
+deposit of 200 mock USDC.e. Example 02 placed and canceled a funded BTC post-only
+order; example 03 received the private cancellation and position events with
+`--idle-timeout 15`. The Node sample from super-app #897/#898 also passed its
+WebSocket place/status/cancel, private cancellation event and REST fills lookup.
+Every accepted test order ended canceled, with zero executed quantity, positions
+or open orders and 200 USDC.e still available.
+
+The live run exposed an expiry bug when Endpoint time lagged wall time; order
+preparation now uses `max(client_wall_time, endpoint_time) + 60`. Ingress checks
+wall time as well as contract time. The Node sample uses the same rule with its
+four-hour TTL and now signs the backend's camelCase `orderId` fills parameter.
+See [the funded run and receipts](galileo-live-verification.md). These checks
+establish bounded funded admission and cancellation, with no fills; they do not
+establish fill/fee behavior or sustained throughput.

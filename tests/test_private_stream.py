@@ -98,7 +98,7 @@ class Socket:
             )
 
     def recv(self, timeout):
-        assert 0 < timeout <= 5
+        assert 0 < timeout <= 60
         if not self.frames:
             raise TimeoutError("Mocked idle timeout")
         return json.dumps(self.frames.pop(0))
@@ -176,6 +176,30 @@ def test_bounded_idle_reconnect_exhaustion_and_no_silent_refresh(monkeypatch):
     with pytest.raises(SafetyError, match="budget exhausted"):
         list(client.user_events(max_events=1, max_reconnects=2))
     assert len(calls) == 3 and client.stream_requires_reconciliation
+
+
+def test_event_idle_timeout_is_configurable_without_extending_rpc_deadline(monkeypatch):
+    client, sockets, _ = setup_stream(monkeypatch, [{"events": [EXECUTION]}])
+    receive = sockets[0].recv
+    timeouts = []
+
+    def recv(timeout):
+        timeouts.append(timeout)
+        return receive(timeout)
+
+    sockets[0].recv = recv
+    messages = list(client.user_events(max_events=1, max_reconnects=0, idle_timeout=30))
+    assert messages[-1].event == EXECUTION
+    assert 0 < timeouts[0] <= 5
+    assert timeouts[1] == 30
+
+
+@pytest.mark.parametrize("idle_timeout", [0, 61, True, "30", float("nan"), float("inf")])
+def test_invalid_idle_timeout_fails_before_opening_socket(monkeypatch, idle_timeout):
+    client, _, calls = setup_stream(monkeypatch, [])
+    with pytest.raises(SafetyError, match="idle timeout"):
+        list(client.user_events(idle_timeout=idle_timeout))
+    assert not calls
 
 
 def test_subscription_error_does_not_retry_or_echo_session_token(monkeypatch):

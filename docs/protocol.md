@@ -248,6 +248,8 @@ The implemented signing sequence is:
    Price uses exact X9 then X18 conversion; base quantity uses precision 8 and X18.
    Sells have negative signed amount. Integers in the envelope are decimal strings.
    POST_ONLY/GTC sets `expiration = (3 << 62) | expiry_seconds`; no reduce-only bit.
+   Use `expiry_seconds = max(client_wall_time, endpoint_time) + 60`. Ingress also
+   checks wall time, and Endpoint time can lag between settlement batches.
    Signatures are low-s secp256k1, 65 bytes, `v` 27/28. All four hash evidence fields
    are transported.
 4. Put that envelope in compact `signedOrder` JSON. Sort request field names and

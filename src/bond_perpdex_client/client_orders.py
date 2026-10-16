@@ -61,6 +61,11 @@ class OrderCommands:
                 raise SafetyError(
                     "Endpoint time must be a positive timestamp fitting the signed expiry"
                 )
+            # Ingress also checks wall time. Endpoint time can lag between batches.
+            ingress_time = self.clock_ms() // 1000
+            if not 0 < ingress_time < 2**58 - 60:
+                raise SafetyError("Client clock must fit the signed expiry")
+            expires_at = max(endpoint_time, ingress_time) + 60
             self._nonces.add(nonce)
             envelope = wallet.order(
                 market,
@@ -68,7 +73,7 @@ class OrderCommands:
                 quote.price,
                 quote.quantity,
                 subaccount,
-                endpoint_time + 60,
+                expires_at,
                 nonce,
             )
             client_id = client_order_id or str(uuid.uuid4())

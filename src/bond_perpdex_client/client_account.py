@@ -111,7 +111,13 @@ class AccountQueries:
         *,
         max_events: int = 100,
         max_reconnects: int = 2,
+        idle_timeout: float = 5,
     ) -> Iterator[UserStreamMessage]:
         from .user_stream import user_events
 
-        return user_events(self, max_events=max_events, max_reconnects=max_reconnects)
+        return user_events(
+            self,
+            max_events=max_events,
+            max_reconnects=max_reconnects,
+            idle_timeout=idle_timeout,
+        )

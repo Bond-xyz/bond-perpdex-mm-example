@@ -1,0 +1,146 @@
+{
+  "observed_at": "2026-10-16T09:20:26.258332+00:00",
+  "environment": "og-testnet-staging",
+  "chain_id": 16602,
+  "public_origin": "https://perpdex-testnet.bond.xyz",
+  "backend_source": "df07bef07f7e6098861fae2a8435132aadff11a4",
+  "trading_image": "sha256:73ec2fc9ee7b25e8abf6307ec282b516b9b1b24a210ee5667fe4341146f30df3",
+  "registry_sha256": "cf93d95908d454404879fa969dd8b1857f41b389f9b6a26def96eda9689ecdfc",
+  "example_name": "TradeGods Galileo example",
+  "wallet": "0x7B98694Fd4c2b26f8418bb01be64ff4e2B263876",
+  "subaccount": "tradegods-z",
+  "backend_account_id": "a2552470-9c31-4cd3-9953-ce715027641c",
+  "encoded_name": "7472616465676f64732d7a00",
+  "deposit": {
+    "transaction_hash": "0xc99ca6d7f872a91f7a0558d73393bc34c344c452b9d94ed5bf529dfc1275b774",
+    "block": 60424289,
+    "collateral": "USDC.e",
+    "amount": "200",
+    "credited_perp_balance": "200",
+    "pending_deposit_count": 0
+  },
+  "cases": [
+    {
+      "case": "python_rest_first",
+      "started_at": "2026-10-16T09:14:48.227447+00:00",
+      "order": {
+        "symbol": "BTCUSDCPERP",
+        "productId": 2,
+        "orderId": "31cb6e59-5177-419c-9207-4d881fbfee96",
+        "clientOrderId": "4c76f28b-5e6f-4c3c-b1c6-a02d49a60b29",
+        "type": "POST_ONLY",
+        "side": "BUY",
+        "price": "81334",
+        "origQty": "0.002",
+        "executedQty": "0",
+        "status": "CANCELED",
+        "time": 1792142095522,
+        "updateTime": 1792142099686
+      },
+      "notional": "162.66800",
+      "open_order_count": 0,
+      "position_amount": "0",
+      "perp_collateral": "200",
+      "script_error": null,
+      "stream_exit_code": 0,
+      "cancellation_event_observed": false
+    },
+    {
+      "case": "python_rest_private_events",
+      "started_at": "2026-10-16T09:16:12.452251+00:00",
+      "order": {
+        "symbol": "BTCUSDCPERP",
+        "productId": 2,
+        "orderId": "6d001979-ad53-4b8a-825e-d2edb57a6d3e",
+        "clientOrderId": "7e9182ad-4b4e-41cd-8510-3a7eb2924877",
+        "type": "POST_ONLY",
+        "side": "BUY",
+        "price": "81304.80",
+        "origQty": "0.002",
+        "executedQty": "0",
+        "status": "CANCELED",
+        "time": 1792142179064,
+        "updateTime": 1792142180176
+      },
+      "notional": "162.60960",
+      "open_order_count": 0,
+      "position_amount": "0",
+      "perp_collateral": "200",
+      "script_error": null,
+      "stream_exit_code": 0,
+      "cancellation_event_observed": true
+    },
+    {
+      "case": "node_ws_first",
+      "started_at": "2026-10-16T09:17:48.164581+00:00",
+      "order": {
+        "symbol": "BTCUSDCPERP",
+        "productId": 2,
+        "orderId": "8c6891f7-c19f-403c-a0f1-8d2b73515dc1",
+        "clientOrderId": "8c6891f7-c19f-403c-a0f1-8d2b73515dc1",
+        "type": "LIMIT",
+        "side": "BUY",
+        "price": "81301.70",
+        "origQty": "0.002",
+        "executedQty": "0",
+        "status": "CANCELED",
+        "time": 1792142271035,
+        "updateTime": 1792142274617
+      },
+      "notional": "162.60340",
+      "open_order_count": 0,
+      "position_amount": "0",
+      "perp_collateral": "200",
+      "script_exit_code": 1,
+      "cancellation_event_observed": true
+    },
+    {
+      "case": "node_ws_full",
+      "started_at": "2026-10-16T09:18:56.908044+00:00",
+      "order": {
+        "symbol": "BTCUSDCPERP",
+        "productId": 2,
+        "orderId": "879efe74-d51b-4d96-a8cb-f525b18a17f7",
+        "clientOrderId": "879efe74-d51b-4d96-a8cb-f525b18a17f7",
+        "type": "LIMIT",
+        "side": "BUY",
+        "price": "81278.60",
+        "origQty": "0.002",
+        "executedQty": "0",
+        "status": "CANCELED",
+        "time": 1792142340077,
+        "updateTime": 1792142340680
+      },
+      "notional": "162.55720",
+      "open_order_count": 0,
+      "position_amount": "0",
+      "perp_collateral": "200",
+      "script_exit_code": 0,
+      "cancellation_event_observed": true
+    }
+  ],
+  "initial_pre_write_rejection": {
+    "client_order_id": "058f63ab-2828-4408-b04c-6d41d99062c7",
+    "disposition": "confirmed_pre_write_rejection",
+    "writer_error": "signed order expired at 1792141260 before normalized ingress time 1792141867",
+    "resolved_by": "expiry = max(client wall time, Endpoint time) + TTL; no replay"
+  },
+  "final": {
+    "collateral_available": "200",
+    "open_orders": 0,
+    "position_amount": "0",
+    "executed_quantity_all_cases": "0"
+  },
+  "tested_code_sha256": {
+    "python/examples/02_private_rest.py": "37bf65981aeb6fdb76da8f81de882e2598c035b461c21427a1ea1cbf37692f2c",
+    "python/examples/03_private_stream.py": "69290d4fcfe9704c9709f6e5551c01d254edaa105e7860890942e2c10aecc1a5",
+    "python/src/bond_perpdex_client/client_orders.py": "8d2bc99be65e0d97dbe139679922c01dd16a20a71e6df4b17552990dc5d2945c",
+    "python/src/bond_perpdex_client/user_stream.py": "38fd71388fc7e81f9dfa384602ac1104d62e02235c5085b36cb14802fc7f41fa",
+    "node/demo.mjs (identical in #897 and #898)": "24d16f776496397f08dc3e755f18af07f5d5daa679ae51a05cbd7d8ab247b7be"
+  },
+  "limits": [
+    "No fills or fee/rebate assessment",
+    "No sustained throughput or long-running renewal test",
+    "WebSocket cancel-all verified on empty account only"
+  ]
+}

@@ -393,3 +393,27 @@ def test_invalid_endpoint_clock_fails_before_signing(live_mock, endpoint_time):
             Quote("BUY", Decimal("65000"), Decimal("0.002")),
             endpoint_time=endpoint_time,
         )
+
+
+@pytest.mark.parametrize("clock_delta", [-3600, 0, 3600])
+def test_signed_expiry_outlives_both_endpoint_and_ingress_clocks(live_mock, clock_delta):
+    client, _, wallet, market, _ = live_mock
+    endpoint_time = NOW_MS // 1000 + clock_delta
+    intent = client.prepare_order(
+        wallet,
+        market,
+        Quote("BUY", Decimal("65000"), Decimal("0.002")),
+        endpoint_time=endpoint_time,
+    )
+    envelope = json.loads(parse_qs(intent.request.body)["signedOrder"][0])
+    expiration = int(envelope["order"]["expiration"])
+    assert expiration & ((1 << 58) - 1) == max(endpoint_time, NOW_MS // 1000) + 60
+    assert expiration >> 62 == 3
+
+
+def test_client_clock_overflow_fails_before_signing(live_mock):
+    client, _, wallet, market, _ = live_mock
+    client._session = replace(client._session, expires_at_ms=2**59 * 1000)
+    client.clock_ms = lambda: 2**58 * 1000
+    with pytest.raises(SafetyError, match="Client clock"):
+        prepare(live_mock)

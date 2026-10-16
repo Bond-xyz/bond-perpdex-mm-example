@@ -48,7 +48,7 @@ and restrict its permissions to `0600`. Then run:
 
 .venv/bin/python examples/03_private_stream.py \
   --subaccount tradegods-z --ed25519-key /secure/galileo-ed25519.pem \
-  --session-file /secure/galileo.session.json --max-events 5
+  --session-file /secure/galileo.session.json --max-events 5 --idle-timeout 15
 ```
 
 The optional session file securely caches the token, account UUID, public-key
@@ -57,6 +57,9 @@ checked with `/auth/me` and reused across restarts. At **24 hours or less** befo
 expiry, this explicit startup/renewal call signs in again with the persistent key.
 A reader error or identity mismatch stops execution without replacing credentials.
 Without `--session-file`, every run signs in again and replaces the prior token.
+The stream's event idle wait defaults to five seconds; `--idle-timeout` selects
+a bounded 1–60 second wait. Subscription acknowledgements retain a five-second
+deadline. A quiet stream ends with REST reconciliation.
 
 Use one renewal owner per subaccount. Close streams, pause submissions and reconcile
 pending/uncertain commands before renewal, then reconnect, subscribe and reconcile
@@ -81,7 +84,9 @@ arguments to example 02 (the environment values must be operator supplied):
 ```
 
 Live order preparation checks Galileo RPC chain identity and reads the verified
-Endpoint's `getTime()` for signed expiry. The client validates live precision,
+Endpoint's `getTime()` for signed expiry. Expiry is 60 seconds after the later
+of Endpoint time and the client clock: ingress also checks wall time, while
+Endpoint time can lag between settlement batches. The client validates live precision,
 tick/step/notional filters and its configured risk bounds. Orders can execute.
 No deposits are implemented; the website cannot select a named account to fund.
 See [funding and all six integration answers](docs/oems-integration.md).
@@ -111,5 +116,7 @@ See [funding and all six integration answers](docs/oems-integration.md).
 
 Tests block sockets/DNS and use mock transports. Source/runtime checks on
 16 October 2026 bind the guidance to backend `df07bef07f7e6098861fae2a8435132aadff11a4`;
-see [verification](docs/oems-integration.md#verification). Funded admission, fills,
-fees and sustained throughput are not established by offline tests.
+see [verification](docs/oems-integration.md#verification) and the
+[funded TradeGods run](docs/galileo-live-verification.md). Offline tests do not
+establish funded behavior; the live run verifies deposit credit and place/cancel,
+with zero fills. Fill/fee behavior and sustained throughput remain untested.

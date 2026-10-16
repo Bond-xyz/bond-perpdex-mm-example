@@ -107,11 +107,14 @@ def user_events(
     *,
     max_events: int,
     max_reconnects: int,
+    idle_timeout: float,
 ) -> Iterator[UserStreamMessage]:
     if type(max_events) is not int or not 1 <= max_events <= 10_000:
         raise SafetyError("Private stream event count must be bounded")
     if type(max_reconnects) is not int or not 0 <= max_reconnects <= 3:
         raise SafetyError("At most three private stream reconnects are allowed")
+    if type(idle_timeout) not in {int, float} or not 1 <= idle_timeout <= 60:
+        raise SafetyError("Private stream idle timeout must be between 1 and 60 seconds")
     client._active_session()
     connect = getattr(client.transport, "private_socket", None)
     if connect is None:
@@ -155,7 +158,9 @@ def user_events(
                             raise SafetyError(
                                 "Session changed during private stream; reconnect explicitly"
                             )
-                        frame = buffered.pop(0) if buffered else _receive(socket)
+                        frame = (
+                            buffered.pop(0) if buffered else _receive(socket, timeout=idle_timeout)
+                        )
                         if client._active_session() is not session:
                             raise SafetyError("Session changed or expired while receiving an event")
                         event = _event(frame, subscription_id)
