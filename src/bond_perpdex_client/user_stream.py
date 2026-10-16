@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from websockets.exceptions import ConnectionClosed
 
-from .models import VIRTUAL_BOOKS, Json, SafetyError, UserStreamMessage, decimal
+from .models import SUPPORTED_SYMBOLS, Json, SafetyError, UserStreamMessage, decimal
 from .signing import canonical_form, compact
 
 if TYPE_CHECKING:
@@ -76,7 +76,7 @@ def _event(frame: Json, subscription_id: int) -> Json:
         if type(event.get("I")) is not int or event["I"] < 1:
             raise SafetyError("Invalid private event sequence")
         symbol = event.get("s") if kind == "executionReport" else event.get("symbol")
-        if symbol not in VIRTUAL_BOOKS:
+        if symbol not in SUPPORTED_SYMBOLS:
             raise SafetyError("Private event has an unsupported market")
     if kind == "positionUpdate":
         uuid.UUID(event["eventId"])
@@ -125,26 +125,18 @@ def user_events(
             session = client._active_session()
             try:
                 with connect() as socket:
+                    fields = {"recvWindow": 5000, "timestamp": client.clock_ms()}
                     signature = base64.b64encode(
-                        session.key.sign(canonical_form({"recvWindow": 5000}).encode())
+                        session.key.sign(canonical_form(fields).encode())
                     ).decode()
-                    result, _ = _rpc(
-                        socket,
-                        "session.logon",
-                        {
-                            "apiKey": session.api_key,
-                            "timestamp": client.clock_ms(),
-                            "recv_window": "5000",
-                            "signature": signature,
-                        },
-                    )
-                    if result.get("apiKey") != session.api_key:
-                        raise SafetyError("Private logon did not acknowledge the current session")
-                    if client._active_session() is not session:
-                        raise SafetyError("Session changed or expired during logon")
                     result, buffered = _rpc(
-                        socket, "userDataStream.subscribe", {}, buffer_events=True
+                        socket,
+                        "userDataStream.subscribe.signature",
+                        {**fields, "apiKey": session.api_key, "signature": signature},
+                        buffer_events=True,
                     )
+                    if client._active_session() is not session:
+                        raise SafetyError("Session changed or expired during subscription")
                     subscription_id = result.get("subscriptionId")
                     if type(subscription_id) is not int or subscription_id < 1:
                         raise SafetyError("Missing private subscription ID")

@@ -2,20 +2,40 @@
 
 import argparse
 from contextlib import closing
+from pathlib import Path
 
-from bond_perpdex_client import BondPerpDexClient, TestnetConfig, TestnetTransport, WalletSigner
+from bond_perpdex_client import (
+    BondPerpDexClient,
+    TestnetConfig,
+    TestnetTransport,
+    WalletSigner,
+    load_ed25519_private_key,
+)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--symbol", default="BTCUSDCPERP")
-    parser.add_argument("--subaccount", default="bond")
+    parser.add_argument("--subaccount", required=True)
+    parser.add_argument(
+        "--ed25519-key", type=Path, required=True, help="Owner-only persistent Ed25519 PKCS#8 PEM"
+    )
+    parser.add_argument(
+        "--session-file",
+        type=Path,
+        help="Optional owner-only session cache; renew within 24 hours of expiry",
+    )
     parser.add_argument("--max-events", type=int, default=5)
     args = parser.parse_args()
 
     config = TestnetConfig(allow_live_private=True)
     client = BondPerpDexClient(TestnetTransport(config))
-    client.authenticate(WalletSigner.from_environment(), subaccount=args.subaccount)
+    wallet = WalletSigner.from_environment()
+    key = load_ed25519_private_key(args.ed25519_key)
+    if args.session_file:
+        client.authenticate_cached(wallet, key, args.subaccount, args.session_file)
+    else:
+        client.authenticate(wallet, key, args.subaccount)
     with closing(client.user_events(max_events=args.max_events, max_reconnects=0)) as messages:
         for message in messages:
             if message.kind == "connected":

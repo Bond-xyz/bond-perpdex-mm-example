@@ -7,28 +7,47 @@ No market price is supplied by the example: the operator must choose one.
 
 import argparse
 from decimal import Decimal
+from pathlib import Path
 
 from bond_perpdex_client import (
     BondPerpDexClient,
     Quote,
     SafetyError,
+    SigningRegistry,
     TestnetConfig,
     TestnetTransport,
     WalletSigner,
+    load_ed25519_private_key,
+    read_endpoint_time,
 )
 
 
 def arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--symbol", default="BTCUSDCPERP")
-    parser.add_argument("--subaccount", default="bond")
+    parser.add_argument("--subaccount", required=True)
+    parser.add_argument(
+        "--ed25519-key", type=Path, required=True, help="Owner-only persistent Ed25519 PKCS#8 PEM"
+    )
+    parser.add_argument(
+        "--session-file",
+        type=Path,
+        help="Optional owner-only session cache; renew within 24 hours of expiry",
+    )
     parser.add_argument("--place", action="store_true")
+    parser.add_argument(
+        "--registry", type=Path, help="Operator-verified canonical Galileo perpdex.json"
+    )
+    parser.add_argument("--rpc-url", help="Verified HTTPS Galileo RPC for Endpoint time")
     parser.add_argument("--side", choices=["BUY", "SELL"])
     parser.add_argument("--price", type=Decimal)
     parser.add_argument("--quantity", type=Decimal)
     args = parser.parse_args()
-    if args.place and (args.side is None or args.price is None or args.quantity is None):
-        parser.error("--place requires --side, --price, and --quantity")
+    if args.place and any(
+        value is None
+        for value in (args.side, args.price, args.quantity, args.registry, args.rpc_url)
+    ):
+        parser.error("--place requires --side, --price, --quantity, --registry, and --rpc-url")
     if not args.place and any(
         value is not None for value in (args.side, args.price, args.quantity)
     ):
@@ -38,12 +57,21 @@ def arguments() -> argparse.Namespace:
 
 def main() -> None:
     args = arguments()
-    config = TestnetConfig(allow_live_private=True, allow_live_orders=args.place)
+    registry = SigningRegistry.from_file(args.registry) if args.registry else None
+    config = TestnetConfig(
+        allow_live_private=True, allow_live_orders=args.place, signing_registry=registry
+    )
     client = BondPerpDexClient(TestnetTransport(config))
     wallet = WalletSigner.from_environment()
 
     # SIWE creates a wallet session. A new sign-in may replace its old token.
-    client.authenticate(wallet, subaccount=args.subaccount)
+    key = load_ed25519_private_key(args.ed25519_key)
+    if args.session_file:
+        client.authenticate_cached(wallet, key, args.subaccount, args.session_file)
+    else:
+        client.authenticate(wallet, key, args.subaccount)
+    identity = client.identity()
+    print(f"Backend subaccount UUID: {identity['id']}; encoded name: {identity['name']}")
     account = client.account()
     print(f"PerpDEX account present: {account.get('accountPresent')}")
     rates = client.commission_rate(args.symbol)
@@ -64,6 +92,7 @@ def main() -> None:
         market,
         Quote(args.side, args.price, args.quantity),
         subaccount=args.subaccount,
+        endpoint_time=read_endpoint_time(args.rpc_url, registry),
     )
     print(f"Submitting client order {intent.client_order_id}, digest {intent.digest}")
     acknowledgement = client.submit_order(intent)

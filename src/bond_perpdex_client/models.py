@@ -4,19 +4,16 @@ from dataclasses import dataclass, field
 from decimal import Decimal, localcontext
 from typing import Any, Literal
 
+from .registry import SigningRegistry
+
 Json = dict[str, Any]
 Side = Literal["BUY", "SELL"]
-SOURCE_REVISION = "34869838ed5588f6a4686f6663e824212287ddb3"
+SOURCE_REVISION = "df07bef07f7e6098861fae2a8435132aadff11a4"
 HTTP_URL = "https://perpdex-testnet.bond.xyz"
 WS_URL = "wss://perpdex-testnet.bond.xyz/ws"
 WS_API_URL = "wss://perpdex-testnet.bond.xyz/ws-fapi/v1"
 CHAIN_ID = 16602
-VIRTUAL_BOOKS = {
-    "BTCUSDCPERP": (2, "0x0600d31371f0191aaeb4133fd1f4edad21d513f1"),
-    "ETHUSDCPERP": (4, "0x61c50d415c537e55bec5768fe57bf0c06451aec2"),
-    "SOLUSDCPERP": (6, "0x1702b216fa21130e857b3b5baafa14a8d983ab79"),
-    "0GUSDCPERP": (8, "0x571df73ca7984e42300d6ef13a12201ef77ed9d2"),
-}
+SUPPORTED_SYMBOLS = frozenset({"BTCUSDCPERP", "ETHUSDCPERP", "SOLUSDCPERP", "0GUSDCPERP"})
 
 
 class SafetyError(ValueError):
@@ -58,6 +55,7 @@ class TestnetConfig:
     ws_api_url: str = WS_API_URL
     allow_live_private: bool = False
     allow_live_orders: bool = False
+    signing_registry: SigningRegistry | None = None
     max_order_notional: str = "200"
     max_position: str = "0.010"
     max_open_orders: int = 2
@@ -95,9 +93,9 @@ class Market:
     base_precision: int = 8
 
     @classmethod
-    def from_exchange_info(cls, response: Json, symbol: str) -> "Market":
-        if symbol not in VIRTUAL_BOOKS:
-            raise SafetyError("Market is not in the pinned testnet registry")
+    def from_exchange_info(cls, response: Json, symbol: str, registry: SigningRegistry) -> "Market":
+        if symbol not in SUPPORTED_SYMBOLS or symbol not in registry.markets:
+            raise SafetyError("Market is not in the verified testnet registry")
         matches = [item for item in response["symbols"] if item["symbol"] == symbol]
         if len(matches) != 1:
             raise SafetyError("Missing or ambiguous exchangeInfo market")
@@ -110,7 +108,7 @@ class Market:
         price, lot, notional = (
             filters[key] for key in ("PRICE_FILTER", "LOT_SIZE", "MIN_NOTIONAL")
         )
-        product_id, book = VIRTUAL_BOOKS[symbol]
+        product_id, book = registry.markets[symbol]
         market = cls(
             symbol,
             product_id,

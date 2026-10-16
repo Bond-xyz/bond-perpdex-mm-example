@@ -2,7 +2,7 @@ import hashlib
 import json
 from dataclasses import replace
 from decimal import Decimal
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, quote_plus
 
 import httpx
 import pytest
@@ -21,7 +21,8 @@ from bond_perpdex_client import (
     TestnetTransport as LiveTransport,
 )
 from bond_perpdex_client.models import PreparedRequest
-from bond_perpdex_client.offline import NOW_MS, OfflineVenue, demo_identity
+from bond_perpdex_client.offline import NOW_MS, OFFLINE_REGISTRY, OfflineVenue, demo_identity
+from bond_perpdex_client.signing import canonical_form
 
 
 @pytest.fixture
@@ -50,17 +51,62 @@ def live_mock(monkeypatch):
         return real_client(transport=httpx.MockTransport(handler), **kwargs)
 
     monkeypatch.setattr("bond_perpdex_client.transport.httpx.Client", factory)
-    config = Config(allow_live_private=True, allow_live_orders=True)
+
+    class CommandSocket:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def send(self, raw):
+            frame = json.loads(raw)
+            assert frame["method"] == "openOrders.cancelAll"
+            params = frame["params"]
+            wire.append(
+                httpx.Request("WS", "https://perpdex-testnet.bond.xyz/ws-fapi/v1", content=raw)
+            )
+            signed = (
+                canonical_form(params) + "&signature=" + quote_plus(params["signature"], safe="")
+            )
+            self.result = venue.request(
+                PreparedRequest(
+                    "DELETE",
+                    "/fapi/v1/openOrders",
+                    signed,
+                    {
+                        "x-api-key": params["apiKey"],
+                        "content-type": "application/x-www-form-urlencoded",
+                    },
+                )
+            )
+            self.id = frame["id"]
+
+        def recv(self, timeout):
+            assert 0 < timeout <= 10
+            return json.dumps({"id": self.id, "status": 200, "result": self.result})
+
+    monkeypatch.setattr(
+        "bond_perpdex_client.transport.connect", lambda *args, **kwargs: CommandSocket()
+    )
+    config = Config(
+        allow_live_private=True, allow_live_orders=True, signing_registry=OFFLINE_REGISTRY
+    )
     transport = LiveTransport(config)
     client = BondPerpDexClient(transport, clock_ms=lambda: venue.now_ms)
     wallet, key = demo_identity()
-    client.authenticate(wallet, key)
+    client.authenticate(wallet, key, "bond")
     return client, venue, wallet, client.market("BTCUSDCPERP"), wire
 
 
 def prepare(context, *, side="BUY"):
     client, _, wallet, market, _ = context
-    return client.prepare_order(wallet, market, Quote(side, Decimal("65000"), Decimal("0.002")))
+    return client.prepare_order(
+        wallet,
+        market,
+        Quote(side, Decimal("65000"), Decimal("0.002")),
+        endpoint_time=NOW_MS // 1000,
+    )
 
 
 def test_real_transport_auth_place_account_reads_query_and_cancel_are_mocked(live_mock):
@@ -108,9 +154,17 @@ def test_cancel_all_exact_route_and_explicit_scope_confirmation(live_mock):
     result = client.cancel_all(market.symbol, confirm_all_for_symbol=True)
     assert len(result) == 2 and all(item["status"] == "CANCELED" for item in result)
     request = wire[-1]
-    assert request.method == "DELETE" and request.url.path == "/fapi/v1/openOrders"
-    fields = parse_qs(request.content.decode())
-    assert set(fields) == {"symbol", "newClientOrderId", "timestamp", "recvWindow", "signature"}
+    assert request.method == "WS" and request.url.path == "/ws-fapi/v1"
+    fields = json.loads(request.content)["params"]
+    assert set(fields) == {
+        "symbol",
+        "newClientOrderId",
+        "timestamp",
+        "recvWindow",
+        "signature",
+        "apiKey",
+    }
+    assert not any(r.method == "DELETE" and r.url.path == "/fapi/v1/openOrders" for r in wire)
     assert client.open_orders(market.symbol) == []
 
 
@@ -139,7 +193,7 @@ def test_lost_cancel_all_response_blocks_later_sweeps(live_mock):
     assert client.halted and len(client.uncertain_commands) == 1
     with pytest.raises(SafetyError):
         client.cancel_all(market.symbol, confirm_all_for_symbol=True)
-    assert sum(request.method == "DELETE" for request in wire) == 1
+    assert sum(request.method == "WS" for request in wire) == 1
 
 
 def test_lost_single_cancel_response_retains_command_and_never_retries(live_mock):
@@ -193,7 +247,7 @@ def test_live_pinned_domain_guard_rejects_changed_intent_before_account_io(live_
     client, _, _, _, wire = live_mock
     intent = prepare(live_mock)
     changed = intent.request.body.replace(
-        "0x0600d31371f0191aaeb4133fd1f4edad21d513f1",
+        "0x" + "22" * 20,
         "0x" + "11" * 20,
     )
     before = len(wire)
@@ -277,6 +331,65 @@ def test_live_auth_redirect_or_unknown_result_does_not_refresh_or_retry(monkeypa
     )
     wallet, key = demo_identity()
     with pytest.raises(UnknownOutcome):
-        client.authenticate(wallet, key)
+        client.authenticate(wallet, key, "bond")
     assert calls == ["/auth/nonce", "/auth/signin"]
     assert client._session is None and client.halted
+
+
+@pytest.mark.parametrize("failure", ["wrong-id", "rejected", "bad-result", "timeout"])
+def test_websocket_cancel_all_uncertainty_is_retained_without_rest_fallback(
+    live_mock, monkeypatch, failure
+):
+    client, _, _, market, wire = live_mock
+    calls = []
+
+    class FailedSocket:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def send(self, raw):
+            self.frame = json.loads(raw)
+            calls.append(self.frame)
+
+        def recv(self, timeout):
+            if failure == "timeout":
+                raise TimeoutError("Lost acknowledgement")
+            return json.dumps(
+                {
+                    "id": "other" if failure == "wrong-id" else self.frame["id"],
+                    "status": 401 if failure == "rejected" else 200,
+                    "result": {} if failure == "bad-result" else [],
+                }
+            )
+
+    monkeypatch.setattr(
+        "bond_perpdex_client.transport.connect", lambda *args, **kwargs: FailedSocket()
+    )
+    with pytest.raises(UnknownOutcome):
+        client.cancel_all(market.symbol, confirm_all_for_symbol=True)
+    assert client.halted and len(client.uncertain_commands) == 1
+    with pytest.raises(SafetyError):
+        client.cancel_all(market.symbol, confirm_all_for_symbol=True)
+    assert len(calls) == 1
+    assert not any(r.method == "DELETE" and r.url.path == "/fapi/v1/openOrders" for r in wire)
+
+
+def test_live_order_requires_endpoint_clock_before_signing(live_mock):
+    client, _, wallet, market, _ = live_mock
+    with pytest.raises(SafetyError, match="Endpoint time"):
+        client.prepare_order(wallet, market, Quote("BUY", Decimal("65000"), Decimal("0.002")))
+
+
+@pytest.mark.parametrize("endpoint_time", [0, -1, True, 2**58])
+def test_invalid_endpoint_clock_fails_before_signing(live_mock, endpoint_time):
+    client, _, wallet, market, _ = live_mock
+    with pytest.raises(SafetyError, match="Endpoint time"):
+        client.prepare_order(
+            wallet,
+            market,
+            Quote("BUY", Decimal("65000"), Decimal("0.002")),
+            endpoint_time=endpoint_time,
+        )

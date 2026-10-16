@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 from websockets.sync.client import ClientConnection, connect
 
-from .models import VIRTUAL_BOOKS, Json, PreparedRequest, SafetyError, TestnetConfig
+from .models import SUPPORTED_SYMBOLS, Json, PreparedRequest, SafetyError, TestnetConfig
 
 
 class Transport(Protocol):
@@ -45,7 +45,7 @@ class TestnetReadOnlyTransport:
         if parsed.path == "/fapi/v1/depth":
             if set(params) != {"symbol", "limit"} or params["limit"] != ["20"]:
                 raise SafetyError("Unsupported depth parameters")
-            if len(params["symbol"]) != 1 or params["symbol"][0] not in VIRTUAL_BOOKS:
+            if len(params["symbol"]) != 1 or params["symbol"][0] not in SUPPORTED_SYMBOLS:
                 raise SafetyError("Unsupported depth market")
         elif params:
             raise SafetyError("Unexpected public query parameters")
@@ -71,12 +71,13 @@ class TestnetReadOnlyTransport:
 
     def depth_events(self, symbol: str, count: int = 1) -> Iterator[Json]:
         self.config.validate()
-        if symbol not in VIRTUAL_BOOKS or not 1 <= count <= 100:
+        if symbol not in SUPPORTED_SYMBOLS or not 1 <= count <= 100:
             raise SafetyError("Unsupported stream or bounded event count")
         stream = symbol.lower() + "@depth@100ms"
         with connect(
             self.config.ws_url,
             proxy=None,
+            ssl=httpx.create_ssl_context(trust_env=False),
             open_timeout=5,
             close_timeout=2,
             max_size=1_000_000,
@@ -134,6 +135,10 @@ class TestnetTransport(TestnetReadOnlyTransport):
                 if body["secret_type"] != "Ed25519" or "BEGIN PUBLIC KEY" not in body["secret_key"]:
                     raise SafetyError("Only a public Ed25519 session key may be transported")
             return self._http(request)
+        if route == ("GET", "/auth/me"):
+            if parsed.query or request.body or not request.headers.get("x-api-key"):
+                raise SafetyError("Identity reads require only a session header")
+            return self._http(request)
         reads = {
             ("GET", path)
             for path in (
@@ -148,7 +153,6 @@ class TestnetTransport(TestnetReadOnlyTransport):
         commands = {
             ("POST", "/fapi/v1/order"),
             ("DELETE", "/fapi/v1/order"),
-            ("DELETE", "/fapi/v1/openOrders"),
         }
         if route not in reads | commands or (route in commands and not self.mutations_enabled):
             raise SafetyError("Testnet command path or live-mutation permission denied")
@@ -176,8 +180,35 @@ class TestnetTransport(TestnetReadOnlyTransport):
         return connect(
             self.config.ws_api_url,
             proxy=None,
+            ssl=httpx.create_ssl_context(trust_env=False),
             open_timeout=5,
             close_timeout=2,
             max_size=1_000_000,
             max_queue=16,
         )
+
+    def trading_request(self, request: PreparedRequest) -> object:
+        """One bounded signed cancel-all call; never replay on socket failure.
+
+        The example opens one socket per sweep. An OEMS should reuse a bounded
+        command connection and correlate responses, respecting upgrade limits.
+        """
+        from .user_stream import _receive
+        from .wire import websocket_cancel_all
+
+        self.config.validate()
+        if not self.mutations_enabled:
+            raise SafetyError("Trading WebSocket commands require explicit live-order permission")
+        frame = websocket_cancel_all(request)
+        with self.private_socket() as socket:
+            socket.send(json.dumps(frame))
+            response = _receive(socket, timeout=10)
+            if (
+                response.get("id") != frame["id"]
+                or response.get("status") != 200
+                or "error" in response
+            ):
+                raise SafetyError("Trading WebSocket command failed; reconcile before retrying")
+            if not isinstance(response.get("result"), list):
+                raise SafetyError("Unexpected cancel-all response; reconcile before retrying")
+            return response["result"]

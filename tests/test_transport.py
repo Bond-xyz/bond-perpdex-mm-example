@@ -1,4 +1,5 @@
 import json
+import ssl
 
 import httpx
 import pytest
@@ -26,7 +27,7 @@ def test_public_http_exact_origin_and_shape(monkeypatch):
         return httpx.Response(200, json=EXCHANGE_INFO)
 
     install_http_mock(monkeypatch, handler)
-    assert BondPerpDexClient().market("BTCUSDCPERP").product_id == 2
+    assert BondPerpDexClient().exchange_info() == EXCHANGE_INFO
 
 
 @pytest.mark.parametrize("status", [301, 302, 401, 429, 500, 503])
@@ -68,6 +69,7 @@ def test_websocket_subscription_ack_and_wrapped_depth(monkeypatch):
     def connect(url, **kwargs):
         assert url == "wss://perpdex-testnet.bond.xyz/ws"
         assert kwargs["proxy"] is None and kwargs["max_queue"] == 16
+        assert kwargs["ssl"].verify_mode == ssl.CERT_REQUIRED and kwargs["ssl"].check_hostname
         return Socket()
 
     monkeypatch.setattr("bond_perpdex_client.transport.connect", connect)

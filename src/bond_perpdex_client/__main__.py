@@ -44,12 +44,17 @@ def main() -> None:
     if args.testnet_read_only:
         transport = TestnetReadOnlyTransport(config)
         client = BondPerpDexClient(transport, config=config)
-        market = client.market(symbol)
+        info = client.exchange_info()
+        if not any(
+            item.get("symbol") == symbol and item.get("status") == "TRADING"
+            for item in info["symbols"]
+        ):
+            raise SafetyError("Public market unavailable")
         print(
             json.dumps(
                 {
                     "mode": "testnet-public-read-only",
-                    "symbol": market.symbol,
+                    "symbol": symbol,
                     "depth": client.depth(symbol),
                 }
             )

@@ -1,6 +1,7 @@
 import base64
 import copy
 import json
+import ssl
 
 import pytest
 from cryptography.exceptions import InvalidSignature
@@ -76,25 +77,22 @@ class Socket:
         request = json.loads(raw)
         self.sent.append(request)
         method, params = request["method"], request["params"]
-        if method == "session.logon":
-            assert set(params) == {"apiKey", "timestamp", "recv_window", "signature"}
-            assert params["recv_window"] == "5000" and params["timestamp"] == NOW_MS
-            signature = base64.b64decode(params["signature"])
+        assert method == "userDataStream.subscribe.signature"
+        assert set(params) == {"apiKey", "timestamp", "recvWindow", "signature"}
+        assert params["recvWindow"] == 5000 and params["timestamp"] == NOW_MS
+        signature = base64.b64decode(params["signature"])
+        self.key.public_key().verify(signature, b"recvWindow=5000&timestamp=1770000000000")
+        with pytest.raises(InvalidSignature):
             self.key.public_key().verify(signature, b"recvWindow=5000")
-            with pytest.raises(InvalidSignature):
-                self.key.public_key().verify(signature, b"recvWindow=5000&timestamp=1770000000000")
-            result = {"apiKey": params["apiKey"]}
-        else:
-            assert method == "userDataStream.subscribe" and params == {}
-            result = {"subscriptionId": self.subscription_id}
-            if self.before_ack:
-                self.frames.append(
-                    {"subscriptionId": self.subscription_id, "event": self.events.pop(0)}
-                )
+        result = {"subscriptionId": self.subscription_id}
+        if self.before_ack:
+            self.frames.append(
+                {"subscriptionId": self.subscription_id, "event": self.events.pop(0)}
+            )
         self.frames.append(
             {"id": request["id"], "status": 401 if self.rpc_error else 200, "result": result}
         )
-        if method == "userDataStream.subscribe":
+        if method == "userDataStream.subscribe.signature":
             self.frames.extend(
                 {"subscriptionId": self.subscription_id, "event": event} for event in self.events
             )
@@ -118,6 +116,7 @@ def setup_stream(monkeypatch, plans):
     def connect(url, **kwargs):
         assert url == "wss://perpdex-testnet.bond.xyz/ws-fapi/v1"
         assert kwargs["proxy"] is None and kwargs["max_queue"] == 16
+        assert kwargs["ssl"].verify_mode == ssl.CERT_REQUIRED and kwargs["ssl"].check_hostname
         calls.append(url)
         return next(pending)
 
@@ -126,7 +125,7 @@ def setup_stream(monkeypatch, plans):
     return client, sockets, calls
 
 
-def test_exact_logon_signature_subscription_and_source_event_variants(monkeypatch):
+def test_timestamp_bound_signature_subscription_and_source_event_variants(monkeypatch):
     events = [
         EXECUTION,
         POSITION,
@@ -139,12 +138,11 @@ def test_exact_logon_signature_subscription_and_source_event_variants(monkeypatc
     assert [message.event for message in result[1:]] == events
     assert sockets[0].closed and client.stream_requires_reconciliation
     assert all(
-        request["method"] in {"session.logon", "userDataStream.subscribe"}
-        for request in sockets[0].sent
+        request["method"] in {"userDataStream.subscribe.signature"} for request in sockets[0].sent
     )
 
 
-def test_termination_reconnect_relogon_and_process_sequence_reset_without_command_replay(
+def test_termination_reconnect_resubscription_and_process_sequence_reset_without_command_replay(
     monkeypatch,
 ):
     reset = {**POSITION, "I": 2}
@@ -163,8 +161,7 @@ def test_termination_reconnect_relogon_and_process_sequence_reset_without_comman
     assert messages[-1].requires_reconciliation
     for socket in sockets:
         assert [request["method"] for request in socket.sent] == [
-            "session.logon",
-            "userDataStream.subscribe",
+            "userDataStream.subscribe.signature",
         ]
 
 
@@ -181,7 +178,7 @@ def test_bounded_idle_reconnect_exhaustion_and_no_silent_refresh(monkeypatch):
     assert len(calls) == 3 and client.stream_requires_reconciliation
 
 
-def test_logon_error_does_not_retry_or_echo_session_token(monkeypatch):
+def test_subscription_error_does_not_retry_or_echo_session_token(monkeypatch):
     client, sockets, calls = setup_stream(monkeypatch, [{"events": [], "rpc_error": True}])
     with pytest.raises(SafetyError) as error:
         list(client.user_events(max_events=1))
