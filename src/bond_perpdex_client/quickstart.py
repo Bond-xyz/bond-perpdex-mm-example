@@ -1,22 +1,14 @@
 """Run the configured offline maker or an explicitly selected Galileo example."""
 
 import argparse
-from contextlib import closing
 from pathlib import Path
 
-from . import (
-    BondPerpDexClient,
-    Quote,
-    SigningRegistry,
-    TestnetTransport,
-    WalletSigner,
-    load_ed25519_private_key,
-    read_endpoint_time,
-)
+from . import Quote, SigningRegistry
 from .__main__ import run as run_demonstration
 from .configuration import MODES, Settings
 from .models import SafetyError
 from .setup import ensure_environment
+from .workflows import open_account, place_and_cancel, print_identity, watch_account
 
 
 def run(settings: Settings, *, allow_live_orders: bool = False) -> None:
@@ -37,13 +29,15 @@ def run(settings: Settings, *, allow_live_orders: bool = False) -> None:
         if not settings.values["BOND_LIMIT_PRICE"] or not settings.values["BOND_GALILEO_RPC_URL"]:
             raise SafetyError("Trade mode requires BOND_LIMIT_PRICE and BOND_GALILEO_RPC_URL")
         registry = SigningRegistry.from_file(settings.path("BOND_REGISTRY_FILE"))
-    wallet = WalletSigner.from_environment(settings.values)
-    key = load_ed25519_private_key(settings.path("BOND_ED25519_PRIVATE_KEY_FILE"))
-    config = settings.client_config(allow_orders=mode == "trade", registry=registry)
-    client = BondPerpDexClient(TestnetTransport(config))
-    client.authenticate_cached(wallet, key, name, settings.path("BOND_SESSION_FILE"))
-    identity = client.identity()
-    print(f"Backend subaccount UUID: {identity['id']}; encoded name: {identity['name']}")
+    account = open_account(
+        settings.client_config(allow_orders=mode == "trade", registry=registry),
+        subaccount=name,
+        key_file=settings.path("BOND_ED25519_PRIVATE_KEY_FILE"),
+        session_file=settings.path("BOND_SESSION_FILE"),
+        environment=settings.values,
+    )
+    client = account.client
+    print_identity(client)
     snapshot = client.reconcile_account(symbol)
     print(
         f"REST snapshot: {len(snapshot.positions)} positions; "
@@ -52,43 +46,26 @@ def run(settings: Settings, *, allow_live_orders: bool = False) -> None:
     if mode == "private":
         return
     if mode == "stream":
-        reconnects = settings.integer("BOND_MAX_RECONNECTS", 0, 3)
-        with closing(
-            client.user_events(
-                max_events=settings.integer("BOND_MAX_EVENTS", 1, 10_000),
-                max_reconnects=reconnects,
-                idle_timeout=settings.integer("BOND_STREAM_IDLE_TIMEOUT_SECONDS", 1, 60),
-            )
-        ) as messages:
-            for message in messages:
-                print(f"Private stream: {message.kind}; {message.reason}")
-                if message.requires_reconciliation:
-                    client.reconcile_account(symbol)
-                if message.kind == "disconnected" and message.generation >= reconnects:
-                    break
+        watch_account(
+            client,
+            symbol,
+            max_events=settings.integer("BOND_MAX_EVENTS", 1, 10_000),
+            max_reconnects=settings.integer("BOND_MAX_RECONNECTS", 0, 3),
+            idle_timeout=settings.integer("BOND_STREAM_IDLE_TIMEOUT_SECONDS", 1, 60),
+        )
         return
 
-    market = client.market(symbol)
-    intent = client.prepare_order(
-        wallet,
-        market,
+    place_and_cancel(
+        account,
+        symbol,
         Quote(
             settings.values["BOND_ORDER_SIDE"],
             settings.positive("BOND_LIMIT_PRICE"),
             settings.positive("BOND_QUANTITY"),
         ),
-        subaccount=name,
-        endpoint_time=read_endpoint_time(settings.values["BOND_GALILEO_RPC_URL"], registry),
+        rpc_url=settings.values["BOND_GALILEO_RPC_URL"],
+        registry=registry,
     )
-    print(f"Retain order intent: {intent.client_order_id}; digest: {intent.digest}")
-    accepted = client.submit_order(intent)
-    order_id = accepted["orderId"]
-    print(f"Accepted order: {order_id}; requesting cancellation")
-    client.cancel_order(market, order_id)
-    terminal = client.query_order(symbol, order_id=order_id)
-    print(f"Order status: {terminal['status']}")
-    if terminal["status"] not in {"CANCELED", "FILLED", "EXPIRED"}:
-        raise SafetyError("Order remains nonterminal; reconcile before placing another")
 
 
 def main() -> None:

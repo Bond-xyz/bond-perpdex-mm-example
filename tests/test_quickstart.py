@@ -91,14 +91,16 @@ def test_private_and_stream_modes_use_configured_identity_and_session_files(
 
         def user_events(self, **kwargs):
             calls.append(("events", kwargs))
-            yield SimpleNamespace(kind="connected", reason="snapshot", requires_reconciliation=True)
+            yield SimpleNamespace(
+                kind="connected", subscription_id=1, reason="snapshot", requires_reconciliation=True
+            )
 
-    monkeypatch.setattr("bond_perpdex_client.quickstart.BondPerpDexClient", Client)
+    monkeypatch.setattr("bond_perpdex_client.workflows.BondPerpDexClient", Client)
     monkeypatch.setattr(
-        "bond_perpdex_client.quickstart.WalletSigner.from_environment", lambda values: object()
+        "bond_perpdex_client.workflows.WalletSigner.from_environment", lambda values: object()
     )
     monkeypatch.setattr(
-        "bond_perpdex_client.quickstart.load_ed25519_private_key",
+        "bond_perpdex_client.workflows.load_ed25519_private_key",
         lambda path: calls.append(("key", path)),
     )
     for mode in ["private", "stream"]:
@@ -167,12 +169,12 @@ def test_quiet_stream_reconciles_and_exits_at_its_configured_budget(
                 yield UserStreamMessage("disconnected", generation, 1, True, "idle")
             raise SafetyError("Private stream reconnect budget exhausted")
 
-    monkeypatch.setattr("bond_perpdex_client.quickstart.BondPerpDexClient", Client)
+    monkeypatch.setattr("bond_perpdex_client.workflows.BondPerpDexClient", Client)
     monkeypatch.setattr(
-        "bond_perpdex_client.quickstart.WalletSigner.from_environment", lambda values: object()
+        "bond_perpdex_client.workflows.WalletSigner.from_environment", lambda values: object()
     )
     monkeypatch.setattr(
-        "bond_perpdex_client.quickstart.load_ed25519_private_key", lambda path: object()
+        "bond_perpdex_client.workflows.load_ed25519_private_key", lambda path: object()
     )
     configured.values.update({"BOND_MODE": "stream", "BOND_MAX_RECONNECTS": str(reconnects)})
     run(configured)
@@ -226,18 +228,18 @@ def test_supervised_trade_wires_operator_values_and_risk_config(configured, monk
             "BOND_GALILEO_RPC_URL": "https://rpc.example",
         }
     )
-    monkeypatch.setattr("bond_perpdex_client.quickstart.BondPerpDexClient", Client)
+    monkeypatch.setattr("bond_perpdex_client.workflows.BondPerpDexClient", Client)
     monkeypatch.setattr(
-        "bond_perpdex_client.quickstart.WalletSigner.from_environment", lambda values: object()
+        "bond_perpdex_client.workflows.WalletSigner.from_environment", lambda values: object()
     )
     monkeypatch.setattr(
-        "bond_perpdex_client.quickstart.load_ed25519_private_key", lambda path: object()
+        "bond_perpdex_client.workflows.load_ed25519_private_key", lambda path: object()
     )
     monkeypatch.setattr(
         "bond_perpdex_client.quickstart.SigningRegistry.from_file", lambda path: OFFLINE_REGISTRY
     )
     monkeypatch.setattr(
-        "bond_perpdex_client.quickstart.read_endpoint_time", lambda url, registry: NOW_MS // 1000
+        "bond_perpdex_client.workflows.read_endpoint_time", lambda url, registry: NOW_MS // 1000
     )
     run(configured, allow_live_orders=True)
     config = next(c[1] for c in calls if c[0] == "config")
