@@ -32,7 +32,7 @@ secrets from your shell into that file. `.env` is ignored and created with mode
 | Public data | `make public` | Bounded Galileo REST/depth stream reads; no wallet needed. |
 | Private account | `make private` | SIWE/session reuse, account UUID and REST position/open-order snapshot; no order writes. |
 | Private events | `make stream` | Signed private subscription, bounded events/reconnects and REST reconciliation; no order writes. |
-| Supervised order | `make trade ARGS=--allow-live-orders` | One operator-priced order, cancellation attempt and terminal-state query. Requires the funded named account, wallet/key, verified registry and RPC. This does not run a continuous live quoting strategy. |
+| Supervised order | `make trade ARGS=--allow-live-orders` | One operator-priced order, cancellation attempt and terminal-state query. Requires the funded named account, wallet/key, public signing discovery and a verified RPC. This does not run a continuous live quoting strategy. |
 
 Changing `BOND_MODE=trade` alone cannot place an order: the command flag is also
 required. Public/private modes do not run the offline quoting policy. Live orders
@@ -73,11 +73,12 @@ The session cache contains a token and public identity, never the private key.
 It reuses valid sessions and renews explicitly at 24 hours remaining, using the
 behavior in [the OEMS guide](oems-integration.md#6-which-credentials-should-a-long-running-oems-use).
 
-For trade mode, also set `BOND_LIMIT_PRICE`, `BOND_GALILEO_RPC_URL`, and
-`BOND_REGISTRY_FILE`. Obtain the current Galileo signing manifest from Bond and
-confirm it matches the deployed contract set. Product IDs, VirtualBooks and
-Endpoint come from that manifest; no historical addresses are populated into
-`.env`. The RPC checks chain 16602 and
+For trade mode, also set `BOND_LIMIT_PRICE` and `BOND_GALILEO_RPC_URL`.
+Product IDs, VirtualBooks and the Endpoint are discovered from public
+`exchangeInfo`; no private registry file is required. Run `make discover` first.
+`BOND_REGISTRY_FILE` is an optional operator pin checked against the public
+response. Missing discovery fields or mismatches stop trading; deploy the
+exchangeInfo extension before using this mode. The RPC checks chain 16602 and
 reads Endpoint time. The website funds your wallet's `bond` subaccount; a named
 account such as `tradegods-z` needs its own funding.
 
@@ -142,7 +143,7 @@ for the applicable protections.
 | `BOND_HTTP_URL` | `https://perpdex-testnet.bond.xyz` | Venue: `transport` | Pinned Galileo REST origin; alternate origins are rejected. |
 | `BOND_PUBLIC_WS_URL` | `wss://perpdex-testnet.bond.xyz/ws` | Venue: `transport` | Pinned public market-data WebSocket; alternate URLs are rejected. |
 | `BOND_TRADING_WS_URL` | `wss://perpdex-testnet.bond.xyz/ws-fapi/v1` | Venue: `transport` | Pinned trading/private-event WebSocket; alternate URLs are rejected. |
-| `BOND_REGISTRY_FILE` | `perpdex.local.json` | Signing context: `registry` | Verified Galileo manifest for trade: product IDs, VirtualBooks and Endpoint. |
+| `BOND_REGISTRY_FILE` | Empty; maker supplied | Signing context: `registry` | Optional operator pin; trade discovers public exchangeInfo signing context and checks this file if set. |
 | `BOND_GALILEO_RPC_URL` | Empty; maker supplied | Signing context: `chain` | Verified HTTPS Galileo RPC for chain identity and Endpoint time; required for trade. |
 | `BOND_SYMBOL` | `BTCUSDCPERP` | Strategy: `models / strategy` | BTCUSDCPERP offline; BTCUSDCPERP, ETHUSDCPERP, SOLUSDCPERP or 0GUSDCPERP live. |
 | `BOND_QUANTITY` | `0.002` | Strategy: `strategy / client_orders` | Base size per quote/order; subject to venue lot and min-notional filters. |

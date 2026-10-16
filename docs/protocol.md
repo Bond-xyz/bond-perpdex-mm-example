@@ -82,12 +82,9 @@ To enable **real order writes**, deliberately construct the client with both
 permissions true, for example:
 
 ```python
-from bond_perpdex_client import SigningRegistry
-
 config = TestnetConfig(
     allow_live_private=True,
     allow_live_orders=True,
-    signing_registry=SigningRegistry.from_file("/secure/perpdex.local.json"),
     max_order_notional="200",
     max_position="0.010",
     max_open_orders=2,
@@ -101,7 +98,7 @@ from decimal import Decimal
 from bond_perpdex_client import Quote, read_endpoint_time
 
 market = client.market("BTCUSDCPERP")
-endpoint_time = read_endpoint_time(verified_galileo_rpc_url, config.signing_registry)
+endpoint_time = read_endpoint_time(verified_galileo_rpc_url, client.signing_registry)
 intent = client.prepare_order(wallet, market,
     Quote("BUY", operator_price, operator_quantity), endpoint_time=endpoint_time)
 ack = client.submit_order(intent)
@@ -191,10 +188,13 @@ it is not an automatic order/fill reconciliation engine or a lossless ledger.
 
 ## Wire compatibility
 
-Obtain the current Galileo signing manifest from Bond and verify that it matches
-the deployed contract set before live trading. Live callers must supply its
-market/product mappings, VirtualBooks and Endpoint; no synthetic fixture selects
-live signing addresses.
+Public `GET /fapi/v1/exchangeInfo` exposes `chainId`, `endpoint`, and per-symbol
+`productId`/`virtualBook` from the service's validated release binding.
+`client.market(symbol)` validates this metadata and live filters; no private
+registry is required. `make discover` performs credential-free validation.
+Optional file pins must match discovery. Missing fields, invalid mappings or a
+rotation during a run stop trading; reconcile before using a new client.
+Deploy the exchangeInfo extension before running discovery-based trade mode.
 
 `tests/fixtures/order-vector.json` and `signed-order-form.txt` check EIP-712
 hashing/signature recovery and exact form encoding. Their addresses and signing
@@ -208,9 +208,8 @@ The implemented signing sequence is:
 2. Encode `sender = owner_address || subaccount_name_right_padded_to_12_bytes`.
    This example intentionally accepts only 1–12 printable ASCII name bytes without spaces.
 3. Sign `Order(bytes32 sender,int128 priceX18,int128 amount,uint64 expiration,uint64 nonce)`
-   with EIP-712 domain `Vertex`, `0.0.1`, chain 16602 and the operator-verified registry VirtualBook. Live callers load
-   `SigningRegistry.from_file` and supply it in `TestnetConfig`; there are no live
-   signing-address defaults. Use `read_endpoint_time` before live order preparation.
+   with EIP-712 domain `Vertex`, `0.0.1`, chain 16602 and the publicly discovered
+   market VirtualBook. There are no hardcoded live signing-address defaults. Use `read_endpoint_time` before live order preparation.
    Price uses exact X9 then X18 conversion; base quantity uses precision 8 and X18.
    Sells have negative signed amount. Integers in the envelope are decimal strings.
    POST_ONLY/GTC sets `expiration = (3 << 62) | expiry_seconds`; no reduce-only bit.
@@ -267,7 +266,7 @@ caller-supplied orders. Strategy rounding goes outward to the tick.
   reduce-only. The offline venue does not simulate matching, margin, liquidation,
   funding, fees or settlement.
 - **Deployment identity:** no historical address table is a live fallback. Load
-  the operator-verified manifest, refresh live filters and read Endpoint time.
+  public signing context and filters from exchangeInfo, then read Endpoint time.
   VirtualBooks may be signing-domain addresses without runtime code. Schema and
   offline vector checks do not establish funded trading acceptance; see the
   dated [verification record](oems-integration.md#verification).

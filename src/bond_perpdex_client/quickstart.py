@@ -28,7 +28,8 @@ def run(settings: Settings, *, allow_live_orders: bool = False) -> None:
     if mode == "trade":
         if not settings.values["BOND_LIMIT_PRICE"] or not settings.values["BOND_GALILEO_RPC_URL"]:
             raise SafetyError("Trade mode requires BOND_LIMIT_PRICE and BOND_GALILEO_RPC_URL")
-        registry = SigningRegistry.from_file(settings.path("BOND_REGISTRY_FILE"))
+        if settings.values["BOND_REGISTRY_FILE"]:
+            registry = SigningRegistry.from_file(settings.path("BOND_REGISTRY_FILE"))
     account = open_account(
         settings.client_config(allow_orders=mode == "trade", registry=registry),
         subaccount=name,

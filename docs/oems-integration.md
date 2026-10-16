@@ -80,26 +80,28 @@ after gaps; the example does not certify fill/fee behavior.
 
 ## 3. Can I discover product IDs and VirtualBooks over REST?
 
-No supported public REST discovery endpoint returns the signing mapping.
-Live `GET /fapi/v1/exchangeInfo` contains symbols, precision and market filters,
-not numeric product IDs or signing addresses. Obtain the current Galileo signing
-manifest from Bond, including its active `markets` and `contracts` sections.
-No anonymous manifest API is promised.
+Use unauthenticated **`GET /fapi/v1/exchangeInfo`**. Its public signing extension
+returns `chainId` and `endpoint` at the top level, and `productId` (integer) and
+`virtualBook` (EVM address) on every perpetual symbol, alongside precision and
+trading filters. These values come from the service's validated deployment
+binding; no private repository access is required.
 
-Use `SigningRegistry.from_file(path)` and supply it as
-`TestnetConfig(signing_registry=registry)`. It validates the Galileo chain,
-nonzero address shape, unique product IDs/VirtualBooks and market presence, and
-retains the file's SHA-256. This is schema validation, not automatic verification
-that the file matches the deployed release. The operator must confirm provenance
-and contract-set identity. Live trading has no fallback to offline fixtures or
-historical deployment addresses.
+`make discover` validates and prints this context without credentials or orders.
+`client.market(symbol)` discovers it automatically for live trading. The client
+requires chain 16602, nonzero addresses, distinct product IDs/VirtualBooks and
+unambiguous symbols. An optional `SigningRegistry.from_file(path)` pin must match
+the public response. Missing fields or a changed mapping stop trading; never
+substitute historical addresses or offline fixtures. A new client after a
+rotation must first reconcile outstanding effects.
 
-At startup refresh `exchangeInfo`; stop for missing markets, signing context or
-filters. Refresh the registry after rotations. Read the verified Endpoint's
-`getTime()` on chain 16602 for signed expiry (`read_endpoint_time`); do not derive
-it from a workstation clock. A VirtualBook can be an EIP-712 domain address
-without runtime code, as described by the active manifest's `bookDomain`; do not
-substitute a contract just because it has bytecode.
+**Rollout requirement:** deploy the market-data exchangeInfo extension before
+using discovery-based trade mode. Older servers omit these fields and are
+rejected. Existing private account reads do not require the extension.
+
+Read the discovered Endpoint's `getTime()` through a verified chain-16602 RPC
+before signing (`read_endpoint_time`). Expiry also accounts for client wall time.
+A VirtualBook may be an EIP-712 domain address without runtime code; do not replace
+it with another contract merely because it has bytecode.
 
 ## 4. Is there a REST cancel-all endpoint?
 

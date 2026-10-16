@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from bond_perpdex_client import BondPerpDexClient, SafetyError, SigningRegistry
+from bond_perpdex_client import SafetyError, SigningRegistry
 from bond_perpdex_client.models import Market
 from bond_perpdex_client.offline import EXCHANGE_INFO, OFFLINE_REGISTRY, demo_identity
 from bond_perpdex_client.signing import subaccount_sender
@@ -70,9 +70,7 @@ def test_invalid_or_ambiguous_signing_context_is_rejected(change):
         SigningRegistry.from_dict(data)
 
 
-def test_no_signing_context_is_guessed_from_exchange_info_or_live_defaults():
-    with pytest.raises(SafetyError, match="verified signing registry"):
-        BondPerpDexClient().market("BTCUSDCPERP")
+def test_missing_registry_market_is_rejected():
     data = manifest()
     del data["markets"]["BTCUSDCPERP"]
     with pytest.raises(SafetyError, match="verified testnet registry"):

@@ -1,4 +1,4 @@
-"""Explicit, operator-verified Galileo signing context; never inferred from exchangeInfo."""
+"""Validate public Galileo signing discovery and optional operator-supplied pins."""
 
 import hashlib
 import json
@@ -35,6 +35,32 @@ class SigningRegistry:
     sha256: str
 
     @classmethod
+    def from_exchange_info(cls, data: dict) -> "SigningRegistry":
+        """Read the public extension; never guess addresses from symbols or fixtures."""
+        symbols = data.get("symbols")
+        if not isinstance(symbols, list) or not symbols:
+            raise ValueError("exchangeInfo signing discovery requires a nonempty symbols array")
+        markets = {}
+        for item in symbols:
+            if not isinstance(item, dict) or not isinstance(item.get("symbol"), str):
+                raise ValueError("Malformed exchangeInfo signing market")
+            symbol = item["symbol"]
+            if symbol in markets:
+                raise ValueError("Duplicate exchangeInfo signing symbol")
+            if "productId" not in item or "virtualBook" not in item:
+                raise ValueError(
+                    "exchangeInfo lacks productId/virtualBook; signing discovery unavailable"
+                )
+            markets[symbol] = {"productId": item["productId"], "virtualBook": item["virtualBook"]}
+        public = {
+            "chainId": data.get("chainId"),
+            "contracts": {"endpointProxy": data.get("endpoint")},
+            "markets": markets,
+        }
+        digest = hashlib.sha256(json.dumps(public, sort_keys=True).encode()).hexdigest()
+        return cls.from_dict(public, digest)
+
+    @classmethod
     def from_file(cls, path: str | Path) -> "SigningRegistry":
         raw = Path(path).read_bytes()
         if len(raw) > 1_000_000:
@@ -52,7 +78,7 @@ class SigningRegistry:
             product = entry["productId"]
             if (
                 type(product) is not int
-                or product <= 0
+                or not 0 < product < 2**32
                 or not re.fullmatch(r"[A-Z0-9]+PERP", symbol)
             ):
                 raise ValueError("Invalid registry market or product ID")

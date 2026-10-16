@@ -35,6 +35,8 @@ OFFLINE_REGISTRY = SigningRegistry.from_dict(
 
 NOW_MS = 1_770_000_000_000
 EXCHANGE_INFO = {
+    "chainId": 16602,
+    "endpoint": OFFLINE_REGISTRY.endpoint,
     "timezone": "UTC",
     "serverTime": NOW_MS,
     "symbols": [
@@ -62,6 +64,15 @@ EXCHANGE_INFO = {
         }
     ],
 }
+EXCHANGE_INFO["symbols"] = [
+    {
+        **copy.deepcopy(EXCHANGE_INFO["symbols"][0]),
+        "symbol": symbol,
+        "productId": product,
+        "virtualBook": book,
+    }
+    for symbol, (product, book) in OFFLINE_REGISTRY.markets.items()
+]
 SNAPSHOT = {"lastUpdateId": 10, "bids": [["65000", "0.1"]], "asks": [["65010", "0.1"]]}
 DEPTH_FRAME = {
     "stream": "btcusdcperp@depth@100ms",

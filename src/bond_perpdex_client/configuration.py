@@ -98,10 +98,11 @@ SETTINGS = (
     ),
     Setting(
         "BOND_REGISTRY_FILE",
-        "perpdex.local.json",
+        "",
         "Signing context",
         "registry",
-        "Verified Galileo manifest for trade: product IDs, VirtualBooks and Endpoint.",
+        "Optional operator pin; trade discovers public exchangeInfo signing context "
+        "and checks this file if set.",
     ),
     Setting(
         "BOND_GALILEO_RPC_URL",

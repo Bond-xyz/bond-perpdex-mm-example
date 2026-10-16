@@ -22,7 +22,7 @@ make private
 ```
 
 Private modes require your wallet credentials. Live trade mode additionally needs
-funding, a verified registry/RPC, an operator-selected price and the explicit
+funding, public signing discovery, a verified RPC, an operator-selected price and the explicit
 `--allow-live-orders` flag. The [configuration guide](docs/configuration.md)
 explains every variable, default, consuming module, mode and setup step.
 
@@ -50,6 +50,7 @@ The installable project is `bond-perpdex-mm-example`; its Python import is
 | `02_private_rest.py` | SIWE account reads; `--place` additionally sends one REST order and attempts cancellation. |
 | `03_private_stream.py` | Timestamp-bound `userDataStream.subscribe.signature`; bounded private events, no orders. |
 | `04_provisioned_key_headers.py` | Synthetic managed-key trading REST headers; no credentials read and no network. |
+| `make discover` | Public signing metadata validation; no credentials or orders. |
 | `make public` | Public exchangeInfo, depth and bounded market-stream reads; no credentials or orders. |
 
 ## Select your account and retain its credentials
@@ -90,21 +91,31 @@ parent directory; do not commit, log or back up credentials.
 
 ## Supply current signing context before trading
 
-There are **no hardcoded live VirtualBooks**. Obtain the current Galileo signing
-manifest from Bond, confirm it matches the deployed contract set, and save a local
-copy. `exchangeInfo` supplies filters, not the numeric product-ID/VirtualBook
-mapping. A registry file is explicit input, not proof of its own deployment
-validity. Refresh it after rotations.
+The client reads public `GET /fapi/v1/exchangeInfo`: top-level `chainId` and
+`endpoint`, and each symbol's `productId` and `virtualBook`, alongside its filters.
+No private repository or registry file is required. Check discovery without
+credentials or order writes:
+
+```sh
+make discover
+```
+
+The server derives these fields from its validated release binding. The client
+rejects missing fields, wrong chains, invalid/duplicate mappings and changes
+during a run. `BOND_REGISTRY_FILE` / `--registry` are optional operator pins,
+checked against discovery. They are not a fallback when discovery is unavailable.
+During rollout, a server without the extension cannot run this version's trade
+mode; private reads and offline mode remain available.
 
 Only after funding the chosen subaccount and setting your price, quantity,
-registry and RPC in the configured environment, run:
+and RPC in the configured environment, run:
 
 ```sh
 make trade ARGS=--allow-live-orders
 ```
 
 `make trade` alone rejects execution. For the individual REST example, pass
-`--place`, side, price, quantity, registry and RPC through `ARGS`; use
+`--place`, side, price, quantity and RPC through `ARGS`; use
 `make rest-example ARGS=--help` for its required account and order flags.
 
 Live order preparation checks Galileo RPC chain identity and reads the verified

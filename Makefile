@@ -3,7 +3,7 @@
 ARGS ?=
 
 .PHONY: help install setup quickstart config public private stream trade \
-	signing offline bot-headers rest-example stream-example \
+	signing offline discover bot-headers rest-example stream-example \
 	test lint format format-check check env-template env-reference _venv
 
 help:
@@ -12,6 +12,7 @@ help:
 	  'make setup            Create/preserve configuration; ARGS=--generate-signing-key is optional' \
 	  'make config           Show effective settings with secrets redacted' \
 	  'make public           Read public Galileo data' \
+	  'make discover         Validate public signing metadata without credentials' \
 	  'make private          Read the configured private account' \
 	  'make stream           Read bounded private events' \
 	  'make trade ARGS=--allow-live-orders  Run one configured place/cancel' \
@@ -44,6 +45,9 @@ signing: _venv
 
 offline: _venv
 	@.venv/bin/python -m bond_perpdex_client $(ARGS)
+
+discover: _venv
+	@.venv/bin/python -m bond_perpdex_client.discovery
 
 bot-headers: _venv
 	@.venv/bin/python examples/04_provisioned_key_headers.py $(ARGS)

@@ -45,6 +45,8 @@ def open_account(
     wallet = WalletSigner.from_environment(environment)
     key = load_ed25519_private_key(key_file)
     client = BondPerpDexClient(TestnetTransport(config))
+    if config.allow_live_orders:
+        client.discover_signing_context()
     if session_file is None:
         client.authenticate(wallet, key, subaccount)
     else:
@@ -92,11 +94,23 @@ def place_and_cancel(
     quote: Quote,
     *,
     rpc_url: str,
-    registry: SigningRegistry,
+    registry: SigningRegistry | None = None,
 ) -> Json:
     """Submit once, cancel once, then require a terminal projection; never replay."""
     client = account.client
     market = client.market(symbol)
+    if (
+        registry is not None
+        and client.signing_registry is not None
+        and (
+            registry.endpoint != client.signing_registry.endpoint
+            or registry.markets != client.signing_registry.markets
+        )
+    ):
+        raise SafetyError("Supplied Endpoint context differs from public signing discovery")
+    registry = registry or client.signing_registry
+    if registry is None:
+        raise SafetyError("Public signing discovery is required before preparing an order")
     intent = client.prepare_order(
         account.wallet,
         market,

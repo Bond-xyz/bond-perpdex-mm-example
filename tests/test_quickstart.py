@@ -193,6 +193,10 @@ def test_supervised_trade_wires_operator_values_and_risk_config(configured, monk
         def __init__(self, transport):
             calls.append(("config", transport.config))
 
+        def discover_signing_context(self):
+            self.signing_registry = OFFLINE_REGISTRY
+            calls.append(("discovery",))
+
         def authenticate_cached(self, *args):
             calls.append(("authenticate", args[2]))
 
@@ -244,7 +248,8 @@ def test_supervised_trade_wires_operator_values_and_risk_config(configured, monk
     run(configured, allow_live_orders=True)
     config = next(c[1] for c in calls if c[0] == "config")
     assert config.allow_live_private and config.allow_live_orders
-    assert config.signing_registry is OFFLINE_REGISTRY
+    assert config.signing_registry is None
+    assert calls.index(("discovery",)) < calls.index(("authenticate", "tradegods-z"))
     prepared = next(c for c in calls if c[0] == "prepare")
     assert prepared[2].side == "SELL" and prepared[2].price == Decimal("65000")
     assert prepared[2].quantity == Decimal("0.003")

@@ -19,6 +19,7 @@ from .models import (
     TestnetConfig,
     UnknownOutcome,
 )
+from .registry import SigningRegistry
 from .signing import WalletSigner, canonical_form, compact, signed_form
 from .transport import TestnetReadOnlyTransport, Transport
 
@@ -88,11 +89,32 @@ class SessionClient:
         return self._object(self._send(PreparedRequest("GET", "/fapi/v1/exchangeInfo", "")))
 
     def market(self, symbol: str) -> Market:
+        info = self.exchange_info()
+        if not self.transport.offline:
+            self.discover_signing_context(info)
         if self.signing_registry is None:
-            raise SafetyError(
-                "Load an operator-verified signing registry before selecting a trading market"
+            raise SafetyError("Load a verified signing registry before selecting a trading market")
+        return Market.from_exchange_info(info, symbol, self.signing_registry)
+
+    def discover_signing_context(self, info: Json | None = None) -> SigningRegistry:
+        """Load public signing metadata, rejecting a changed mapping or explicit pin mismatch."""
+        try:
+            discovered = SigningRegistry.from_exchange_info(
+                self.exchange_info() if info is None else info
             )
-        return Market.from_exchange_info(self.exchange_info(), symbol, self.signing_registry)
+        except (ValueError, KeyError, TypeError) as error:
+            self.halted = True
+            raise SafetyError(f"Invalid exchangeInfo signing context: {error}") from None
+        current = self.signing_registry
+        if current is not None and (
+            current.endpoint != discovered.endpoint or current.markets != discovered.markets
+        ):
+            self.halted = True
+            raise SafetyError(
+                "exchangeInfo signing context changed or differs from the configured pin"
+            )
+        self.signing_registry = discovered
+        return discovered
 
     def depth(self, symbol: str) -> Json:
         if symbol not in SUPPORTED_SYMBOLS:

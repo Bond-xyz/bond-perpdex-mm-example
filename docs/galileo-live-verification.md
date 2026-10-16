@@ -5,6 +5,12 @@ These bounded integration checks completed on **16 October 2026** against
 standalone Python examples and quick-start profiles, together with venue
 WebSocket compatibility checks.
 
+These funded checks used operator-supplied signing context. The later public
+exchangeInfo discovery extension has local backend/client regression coverage;
+the live endpoint still omitted its fields when checked. Discovery-based trading
+requires that backend rollout and a separate live preparation check. The earlier
+funded results do not certify the new discovery path.
+
 | Area | Observed result |
 | --- | --- |
 | Setup and configuration | Make entrypoints, environment/key setup, editable offline defaults, argument forwarding and redacted configuration display passed. |

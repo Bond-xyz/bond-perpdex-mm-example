@@ -24,7 +24,9 @@ def arguments() -> argparse.Namespace:
     add_credential_arguments(parser)
     parser.add_argument("--place", action="store_true")
     parser.add_argument(
-        "--registry", type=Path, help="Operator-verified canonical Galileo perpdex.json"
+        "--registry",
+        type=Path,
+        help="Optional signing-context pin checked against public exchangeInfo",
     )
     parser.add_argument("--rpc-url", help="Verified HTTPS Galileo RPC for Endpoint time")
     parser.add_argument("--side", choices=["BUY", "SELL"])
@@ -32,10 +34,9 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("--quantity", type=Decimal)
     args = parser.parse_args()
     if args.place and any(
-        value is None
-        for value in (args.side, args.price, args.quantity, args.registry, args.rpc_url)
+        value is None for value in (args.side, args.price, args.quantity, args.rpc_url)
     ):
-        parser.error("--place requires --side, --price, --quantity, --registry, and --rpc-url")
+        parser.error("--place requires --side, --price, --quantity, and --rpc-url")
     if not args.place and any(
         value is not None for value in (args.side, args.price, args.quantity)
     ):
