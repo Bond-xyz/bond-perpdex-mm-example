@@ -5,7 +5,8 @@ These are the same six integration answers published in super-app
 [#898](https://github.com/Bond-xyz/bond-super-app/pull/898). Deployment statements
 below were checked on **16 October 2026** against serving backend
 [`df07bef07f7e6098861fae2a8435132aadff11a4`](https://github.com/Bond-xyz/bond-perpdex/tree/df07bef07f7e6098861fae2a8435132aadff11a4).
-See the [protocol reference](protocol.md) for signing vectors and client boundaries.
+See the [configuration quick start](configuration.md) for editable account, session,
+venue, strategy and risk defaults, and the [protocol reference](protocol.md) for signing details.
 
 ## 1. Which account does the website fund, and how do makers create their own?
 
