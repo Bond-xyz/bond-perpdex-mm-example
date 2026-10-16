@@ -3,7 +3,7 @@
 Start with the [README](../README.md) for installation and the
 [OEMS integration guide](oems-integration.md) for direct answers to signing,
 compatibility, authentication, and rate-limit questions. This reference covers
-real testnet usage, protocol details, and source evidence.
+real testnet usage, protocol details, and synthetic signing vectors.
 
 ## Public read-only depth
 
@@ -38,12 +38,13 @@ not implemented.
 ## Explicitly enable the sample client's testnet access
 
 **These snippets make real requests if you run them.** Use the current
-[verification notes](oems-integration.md#verification) for observed behavior;
-funded order acceptance has not been established.
+[verification summary](galileo-live-verification.md) for checked flows and limits;
+fill/fee behavior and sustained throughput remain untested.
 Use a separately provisioned, dedicated testnet wallet/subaccount.
 Inject `BOND_TESTNET_WALLET_KEY` (32-byte hex) through your secret manager into the
-process environment. Do not paste a key into a shell command, configuration file,
-source file, notebook, or chat. No `.env` loading is performed. Retain the
+process environment. These direct Python snippets do not load `.env`; the
+[quick-start runner](configuration.md) supports an owner-only `.env` instead.
+Do not paste a key into shell commands, source files, notebooks or chat. Retain the
 Ed25519 key in a separate owner-only PEM; an optional owner-only session cache
 stores the token, expiry and public identity, never the private key. Python
 cannot promise secure zeroization. Never enable debug wire logging.
@@ -119,14 +120,13 @@ Existing orders from other processes are not safe to share with this example.
 These non-atomic projection reads are conservative checks, not a margin guarantee.
 Orders can fill before cancellation; a cancel acknowledgement does not undo fills.
 
-An ordinary unrestricted single-cancel response **omits `status` in the current
-source**. The sample client returns that response unchanged and records the UUID in
+An ordinary single-cancel response **can omit `status`**. The sample client
+returns that response unchanged and records the UUID in
 `pending_cancellations`; it does not synthesize `CANCELED`. New live submissions
 remain blocked until `query_order(..., order_id=...)` or `reconcile_account()`
 observes a terminal order status (`CANCELED`, `FILLED`, or `EXPIRED`). A temporarily
 `NEW` projection is not terminal proof. These are read-side checks, never mutation
-retries. Cancel-all and armed-trigger cancellation have different source response
-shapes and can explicitly report `CANCELED`.
+retries. A cancel-all response can explicitly report `CANCELED`.
 
 Cancellation of a specific UUID is supported even if it was not created by this
 process; the server enforces authenticated account ownership. A deliberate
@@ -138,8 +138,8 @@ cancelled = client.cancel_all("BTCUSDCPERP", confirm_all_for_symbol=True)
 
 On live Galileo this sends signed WebSocket **`openOrders.cancelAll`**, with
 `symbol`, timestamp, recvWindow, UUID `newClientOrderId`, signature and SIWE
-`apiKey`. The backend REST `DELETE /fapi/v1/openOrders` exists, but the public
-gateway routes it to a GET-only reader and returns 405. There is no REST fallback.
+`apiKey`. Public REST `DELETE /fapi/v1/openOrders` currently returns 405 on
+Galileo. There is no REST fallback.
 The offline fixture retains the backend form semantics without network access.
 Cancel-all affects every order on that symbol in the authenticated subaccount.
 You may supply `client_order_id` to `cancel_order`/`cancel_all` so the command
@@ -149,7 +149,7 @@ and prohibit a second cancellation attempt/sweep. `query_order(symbol, client_id
 and `reconcile_account(symbol)` provide read-side investigation without clearing
 an unknown-command halt. State is in memory: do not restart to bypass that halt.
 
-### Private WebSocket behavior and source caveats
+### Private WebSocket behavior
 
 `user_events()` connects to the exact trading endpoint
 `wss://perpdex-testnet.bond.xyz/ws-fapi/v1` and sends
@@ -170,10 +170,10 @@ that race the acknowledgement and validates their subscription ID. Event variant
   `{e: "outboundAccountPosition"}`. No balance snapshot is invented; reconcile REST.
 - `eventStreamTerminated`: `e` and `E`; discard the subscription and reconcile.
 
-Execution and position `I` share a process-global counter before account filtering.
-A forward jump may represent other accounts' events, not proven loss on this
-account. A lower/equal value may indicate restart/reset or a duplicate; it is not
-silently dropped. These cases emit reconciliation-required notices. The sample client's
+Execution and position `I` values are not a contiguous per-account sequence.
+A forward jump alone does not prove loss on this account. A lower/equal value may
+indicate restart/reset or a duplicate; it is not silently dropped. These cases
+emit reconciliation-required notices. The sample client's
 `UserStreamMessage` wrapper distinguishes local connection notices from original
 server event dictionaries; it never invents server frames or sequence epochs.
 
@@ -191,48 +191,14 @@ it is not an automatic order/fill reconciliation engine or a lossless ledger.
 
 ## Wire compatibility
 
-The signing and wallet-session implementation was pinned to the local
-`bond-perpdex` implementation at:
+Obtain the current Galileo signing manifest from Bond and verify that it matches
+the deployed contract set before live trading. Live callers must supply its
+market/product mappings, VirtualBooks and Endpoint; no synthetic fixture selects
+live signing addresses.
 
-```text
-df07bef07f7e6098861fae2a8435132aadff11a4
-```
-
-Source anchors below are relative to `Bond-xyz/bond-perpdex` at that revision.
-The canonical signing-address authority is `Bond-xyz/bond-shared-registry`;
-operators must verify its Galileo manifest against the active release. Source
-signing fixtures are synthetic and never select live addresses.
-
-| Behavior | Source anchor at the pinned revision |
-| --- | --- |
-| SIWE message layout, wallet personal-sign, Ed25519 public PEM, `secret_type`, `secret_key` | `services/trading/client/src/client.rs::signin_with_options`; `services/mm-bot/src/auth.rs` |
-| `GET /auth/nonce`, `POST /auth/signin`, response `api_key`, `expires_at`, `id` | `services/trading/src/api/auth.rs`; `services/trading/src/models/auth.rs` |
-| Sorted form canonicalization, null omission, URL form encoding | `services/trading/src/util/common.rs::build_query_string`; `services/trading/src/models/trading.rs::OrderRequest::to_map` |
-| Nested `signedOrder` compact JSON, source browser percent-encoding vector | `services/trading/src/models/trading.rs::browser_sorted_form_golden_binds_explicit_reduce_only_values`; `services/trading/src/api/order_request.rs` |
-| Legacy session `x-api-key` and base64 Ed25519 signature over canonical form | `services/trading/client/src/client.rs::ed25519_sign`, `new_perp_order_signed`, `submit_prepared_perp_command`, `post_signed` |
-| Vertex schema, integer strings, hashes and signature recovery | `core/types/src/signed_intent.rs::VertexEip712Domain`, `VertexOrder`, `SignedOrderEnvelope`; `services/settlement/tests/fixtures/signed_intent_vectors.json` |
-| POST_ONLY expiration bits and low-s ECDSA | `tools/loadgen/src/sign.rs::SignedOrderKind`, `sign_vertex_order`; `core/orderbook-rs/src/orders/provenance.rs::VertexOrderSemantics` |
-| Authenticated sender, canonical chain/book, contract time and size-increment checks | `services/trading/src/service/engine/order.rs::validate_signed_order_context`; `authenticated_subaccount` |
-| POST_ONLY requires GTC; LIMIT+GTX normalization | `services/trading/src/models/trading.rs`; `services/trading/src/handler/trading.rs::new_order` |
-| POST and form DELETE `/fapi/v1/order` | `services/trading/src/api/perp/trading.rs`; `CancelOrderRequest::to_map` in `models/trading.rs` |
-| Ordinary single-cancel status omission versus cancel-all terminal status | `services/trading/src/service/engine/order.rs::build_cancel_order_outcome`; `build_cancel_all_outcome` |
-| Signed `openOrders` and `positionRisk` reads | `services/trading/src/api/perp/account.rs`; `services/trading/src/models/account.rs::QueryOpenOrdersRequest`, `PositionInformationParams` |
-| Cancel-all form fields and route | `services/trading/src/models/trading.rs::CancelOpenOrdersRequest`; `services/trading/src/api/perp/trading.rs::router` |
-| Private signed subscription and timestamp verification | `services/trading/src/models/ws.rs`; `services/trading/src/handler/ws.rs`; `services/trading/src/util/security.rs::validate_request` |
-| Private subscription response, event fields, and sparse account converter | `services/trading/src/handler/ws.rs::process_data_stream_subscribe`; `services/trading/src/models/ws.rs` |
-| Private global sequence allocation, best-effort delivery and termination | `services/trading/src/service/execution_report.rs::emit`; `services/trading/src/service/user_data_stream.rs::route_events`, `terminate_subscription` |
-| Market IDs, precision, tick/step, minimum notional | `core/types/src/symbol.rs` (BTC starts at line 278); `services/market-data/src/api.rs` |
-| WS SUBSCRIBE/ack/envelope and depth sequence fields | `services/market-data/src/wss_api.rs::a_depth_subscription_acknowledges_and_relays_real_frames`; `services/market-data/core/src/models/wss.rs::DiffBookDepthResponse` |
-| Absolute wire depth quantities, zero removals, `U/u/pu` gaps | `services/market-data/core/src/handler/depth.rs::DepthPendingPublish::into_diff_book_depth_response`, `Depth::update_depth`; `services/market-data/src/wss_api.rs::the_real_publisher_delivers_depth_frames_to_a_subscribed_socket` |
-| Testnet endpoint, chain and current VirtualBooks | `platform/bond-config/src/generated.rs`; the active release registry binding and `bond-shared-registry/envs/og-testnet-staging/perpdex.json` |
-| Existing MM lifecycle, unknown-result and restart concerns | `services/mm-bot/src/bot.rs`, `journal.rs`, `signed_order.rs`, `continuity.md` |
-
-The packaged `tests/fixtures/order-vector.json` is the **order** object extracted
-unchanged from the source golden fixture. Its `0x1111…` address is an explicitly
-synthetic source test domain, never a deployment address. `signed-order-form.txt`
-is the exact source Rust browser-encoding literal. Source fixture provenance:
-ethers.js 5.7.2, reviewed Vertex contracts at
-`7ae12f1605e8d3c0790fdfbb98922b6014b00377`. No private key was copied.
+`tests/fixtures/order-vector.json` and `signed-order-form.txt` check EIP-712
+hashing/signature recovery and exact form encoding. Their addresses and signing
+identities are public, synthetic test inputs, never funded-account credentials.
 
 The implemented signing sequence is:
 
@@ -284,9 +250,8 @@ caller-supplied orders. Strategy rounding goes outward to the tick.
   cancellations halt submission with `UnknownOutcome`. There is no retry, replay,
   automatic new client ID, or assumption that a failed HTTP request did nothing.
   Unknown cancellation retains the possibly-open order internally and cannot be
-  retried. Inspect the original intent and venue state. The source has command
-  receipts and richer reconciliation; this package does **not** claim that an
-  empty eventual-consistency read proves an unknown submission never happened.
+  retried. Inspect the original intent and venue state. An empty
+  eventual-consistency read does not prove an unknown submission never happened.
 - **Nonces and restart:** real order-building defaults use random nonzero uint64
   nonces with per-client reuse checks. The deterministic demo uses 42 and 43 only
   in a fresh in-memory venue. Order nonces are distinct from SIWE challenges,

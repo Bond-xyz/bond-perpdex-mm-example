@@ -1,8 +1,6 @@
 # BondPerpDEX OEMS integration examples
 
-Small Python examples for **Galileo testnet (chain 16602)**, aligned with
-[super-app #897](https://github.com/Bond-xyz/bond-super-app/pull/897) and
-[#898](https://github.com/Bond-xyz/bond-super-app/pull/898). Start offline.
+Small Python examples for **Galileo testnet (chain 16602)**. Start offline.
 Private examples make real requests; order writes require explicit permission.
 This is reference source, not a published SDK or an unattended market maker.
 
@@ -51,7 +49,7 @@ The installable project is `bond-perpdex-mm-example`; its Python import is
 | `01_signing_offline.py` | Synthetic SIWE, wallet EIP-712 order, Ed25519 account signature and a WebSocket order frame; no network. |
 | `02_private_rest.py` | SIWE account reads; `--place` additionally sends one REST order and attempts cancellation. |
 | `03_private_stream.py` | Timestamp-bound `userDataStream.subscribe.signature`; bounded private events, no orders. |
-| `04_provisioned_key_headers.py` | Synthetic managed-key writer REST headers; no credentials read and no network. |
+| `04_provisioned_key_headers.py` | Synthetic managed-key trading REST headers; no credentials read and no network. |
 | `make public` | Public exchangeInfo, depth and bounded market-stream reads; no credentials or orders. |
 
 ## Select your account and retain its credentials
@@ -92,12 +90,11 @@ parent directory; do not commit, log or back up credentials.
 
 ## Supply current signing context before trading
 
-There are **no hardcoded live VirtualBooks**. Obtain the operator-verified
-[canonical Galileo manifest](https://github.com/Bond-xyz/bond-shared-registry/blob/main/envs/og-testnet-staging/perpdex.json)
-from Bond, confirm it matches the deployed contract set, and save a local copy.
-Repository access may be required. `exchangeInfo` supplies filters, not the numeric
-product-ID/VirtualBook mapping. A registry file is explicit input, not proof of
-its own deployment validity. Refresh it after rotations.
+There are **no hardcoded live VirtualBooks**. Obtain the current Galileo signing
+manifest from Bond, confirm it matches the deployed contract set, and save a local
+copy. `exchangeInfo` supplies filters, not the numeric product-ID/VirtualBook
+mapping. A registry file is explicit input, not proof of its own deployment
+validity. Refresh it after rotations.
 
 Only after funding the chosen subaccount and setting your price, quantity,
 registry and RPC in the configured environment, run:
@@ -121,7 +118,7 @@ See [funding and all six integration answers](docs/oems-integration.md).
 ## Deployment limits
 
 - Use SIWE sessions for private events and the full OEMS read/trade flow. Managed
-  `x-bond-api-key` credentials remain REST-only; current public account-reader
+  `x-bond-api-key` credentials remain REST-only; current public account-query
   routes require SIWE. Example 04 therefore demonstrates headers offline.
 - Galileo's public **REST cancel-all returns 405**. Live `cancel_all()` sends a signed
   WebSocket `openOrders.cancelAll` instead. Cancel-one remains signed REST. Both
@@ -138,9 +135,8 @@ make check
 make signing
 ```
 
-Tests block sockets/DNS and use mock transports. Source/runtime checks on
-16 October 2026 bind the guidance to backend `df07bef07f7e6098861fae2a8435132aadff11a4`;
-see [verification](docs/oems-integration.md#verification) and the
-[funded TradeGods run](docs/galileo-live-verification.md). Offline tests do not
-establish funded behavior; the live run verifies deposit credit and place/cancel,
-with zero fills. Fill/fee behavior and sustained throughput remain untested.
+Tests block sockets/DNS and use mock transports. The dated
+[Galileo verification summary](docs/galileo-live-verification.md) covers named-account
+deposit credit, place/cancel and private events, with zero fills. Offline tests do
+not establish funded behavior. Fill/fee behavior and sustained throughput remain
+untested.

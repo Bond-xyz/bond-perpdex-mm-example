@@ -74,10 +74,10 @@ It reuses valid sessions and renews explicitly at 24 hours remaining, using the
 behavior in [the OEMS guide](oems-integration.md#6-which-credentials-should-a-long-running-oems-use).
 
 For trade mode, also set `BOND_LIMIT_PRICE`, `BOND_GALILEO_RPC_URL`, and
-`BOND_REGISTRY_FILE`. Obtain the operator-verified manifest from the
-[canonical Galileo registry](https://github.com/Bond-xyz/bond-shared-registry/blob/main/envs/og-testnet-staging/perpdex.json)
-or Bond. Product IDs, VirtualBooks and Endpoint come from that manifest; no
-historical addresses are populated into `.env`. The RPC checks chain 16602 and
+`BOND_REGISTRY_FILE`. Obtain the current Galileo signing manifest from Bond and
+confirm it matches the deployed contract set. Product IDs, VirtualBooks and
+Endpoint come from that manifest; no historical addresses are populated into
+`.env`. The RPC checks chain 16602 and
 reads Endpoint time. The website funds your wallet's `bond` subaccount; a named
 account such as `tradegods-z` needs its own funding.
 

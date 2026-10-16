@@ -8,7 +8,6 @@ from .registry import SigningRegistry
 
 Json = dict[str, Any]
 Side = Literal["BUY", "SELL"]
-SOURCE_REVISION = "df07bef07f7e6098861fae2a8435132aadff11a4"
 HTTP_URL = "https://perpdex-testnet.bond.xyz"
 WS_URL = "wss://perpdex-testnet.bond.xyz/ws"
 WS_API_URL = "wss://perpdex-testnet.bond.xyz/ws-fapi/v1"

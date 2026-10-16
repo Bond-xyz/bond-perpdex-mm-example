@@ -1,6 +1,6 @@
-"""Offline managed-key header shape for writer REST routes; sends no requests.
+"""Offline managed-key header shape for trading REST routes; sends no requests.
 
-The public Galileo account reader requires SIWE. Managed credentials remain
+Public Galileo account queries require SIWE. Managed credentials remain
 REST-only and cannot authenticate the trading/private WebSocket.
 """
 
