@@ -1,9 +1,17 @@
 import json
+from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from bond_perpdex_client import BondPerpDexClient, SafetyError, load_ed25519_private_key
+from bond_perpdex_client import (
+    BondPerpDexClient,
+    SafetyError,
+    WalletSigner,
+    load_ed25519_private_key,
+)
 from bond_perpdex_client import TestnetConfig as Config
 from bond_perpdex_client.client import Session
 from bond_perpdex_client.offline import NOW_MS, demo_identity
@@ -56,7 +64,17 @@ class SessionVenue:
         }
 
 
-def setup_cache(tmp_path):
+@dataclass(frozen=True, repr=False)
+class CachedAccount:
+    client: BondPerpDexClient
+    venue: SessionVenue
+    wallet: WalletSigner
+    key: Ed25519PrivateKey
+    path: Path
+
+
+@pytest.fixture
+def cached_account(tmp_path) -> CachedAccount:
     wallet, key = demo_identity()
     venue = SessionVenue(wallet)
     client = BondPerpDexClient(
@@ -64,33 +82,39 @@ def setup_cache(tmp_path):
     )
     path = tmp_path / "test.session.json"
     client.authenticate_cached(wallet, key, "tradegods-z", path)
-    return client, venue, wallet, key, path
+    return CachedAccount(client, venue, wallet, key, path)
 
 
-def test_first_signin_reuses_matching_session_on_restart_without_replacing_token(tmp_path):
-    client, venue, wallet, key, path = setup_cache(tmp_path)
-    saved = path.read_bytes()
-    assert path.stat().st_mode & 0o777 == 0o600
+def test_first_signin_reuses_matching_session_on_restart_without_replacing_token(cached_account):
+    saved = cached_account.path.read_bytes()
+    assert cached_account.path.stat().st_mode & 0o777 == 0o600
     assert b"PRIVATE KEY" not in saved
-    restored = BondPerpDexClient(venue, config=client.config, clock_ms=lambda: NOW_MS)
-    restored.authenticate_cached(wallet, key, "tradegods-z", path)
-    assert venue.signins == 1 and venue.paths[-1] == "/auth/me"
-    assert restored._session.api_key == client._session.api_key
+    restored = BondPerpDexClient(
+        cached_account.venue, config=cached_account.client.config, clock_ms=lambda: NOW_MS
+    )
+    restored.authenticate_cached(
+        cached_account.wallet, cached_account.key, "tradegods-z", cached_account.path
+    )
+    assert cached_account.venue.signins == 1 and cached_account.venue.paths[-1] == "/auth/me"
+    assert restored._session.api_key == cached_account.client._session.api_key
     assert restored._session.account_id == ACCOUNT_ID
-    assert path.read_bytes() == saved
+    assert cached_account.path.read_bytes() == saved
 
 
 @pytest.mark.parametrize("remaining", [DAY, DAY - 1, 0, -1])
-def test_renewal_at_24_hours_or_expired_replaces_cached_token_atomically(tmp_path, remaining):
-    client, venue, wallet, key, path = setup_cache(tmp_path)
-    saved = json.loads(path.read_text())
+def test_renewal_at_24_hours_or_expired_replaces_cached_token_atomically(
+    cached_account, tmp_path, remaining
+):
+    saved = json.loads(cached_account.path.read_text())
     saved["expires_at_ms"] = NOW_MS + remaining
-    path.write_text(json.dumps(saved))
-    client.authenticate_cached(wallet, key, "tradegods-z", path)
-    assert venue.signins == 2
-    assert json.loads(path.read_text())["api_key"] == "test-token-2"
-    assert path.stat().st_mode & 0o777 == 0o600
-    assert list(tmp_path.iterdir()) == [path]
+    cached_account.path.write_text(json.dumps(saved))
+    cached_account.client.authenticate_cached(
+        cached_account.wallet, cached_account.key, "tradegods-z", cached_account.path
+    )
+    assert cached_account.venue.signins == 2
+    assert json.loads(cached_account.path.read_text())["api_key"] == "test-token-2"
+    assert cached_account.path.stat().st_mode & 0o777 == 0o600
+    assert list(tmp_path.iterdir()) == [cached_account.path]
 
 
 def test_session_threshold_does_not_renew_early():
@@ -113,25 +137,27 @@ def test_session_threshold_does_not_renew_early():
         ("chain_id", 1),
     ],
 )
-def test_mismatched_cache_fails_before_network_and_preserves_file(tmp_path, field, value):
-    client, venue, wallet, key, path = setup_cache(tmp_path)
-    saved = json.loads(path.read_text())
+def test_mismatched_cache_fails_before_network_and_preserves_file(cached_account, field, value):
+    saved = json.loads(cached_account.path.read_text())
     saved[field] = value
-    path.write_text(json.dumps(saved))
-    before = path.read_bytes(), len(venue.paths)
+    cached_account.path.write_text(json.dumps(saved))
+    before = cached_account.path.read_bytes(), len(cached_account.venue.paths)
     with pytest.raises(SafetyError, match="another wallet"):
-        client.authenticate_cached(wallet, key, "tradegods-z", path)
-    assert (path.read_bytes(), len(venue.paths)) == before
+        cached_account.client.authenticate_cached(
+            cached_account.wallet, cached_account.key, "tradegods-z", cached_account.path
+        )
+    assert (cached_account.path.read_bytes(), len(cached_account.venue.paths)) == before
 
 
 @pytest.mark.parametrize("failure", ["read_error", "wrong_name", "wrong_address", "wrong_id"])
-def test_cached_read_failure_never_silently_replaces_credentials(tmp_path, failure):
-    client, venue, wallet, key, path = setup_cache(tmp_path)
-    saved = path.read_bytes()
-    setattr(venue, failure, True)
+def test_cached_read_failure_never_silently_replaces_credentials(cached_account, failure):
+    saved = cached_account.path.read_bytes()
+    setattr(cached_account.venue, failure, True)
     with pytest.raises(SafetyError):
-        client.authenticate_cached(wallet, key, "tradegods-z", path)
-    assert venue.signins == 1 and path.read_bytes() == saved
+        cached_account.client.authenticate_cached(
+            cached_account.wallet, cached_account.key, "tradegods-z", cached_account.path
+        )
+    assert cached_account.venue.signins == 1 and cached_account.path.read_bytes() == saved
 
 
 @pytest.mark.parametrize(
@@ -145,31 +171,33 @@ def test_cached_read_failure_never_silently_replaces_credentials(tmp_path, failu
         ("account_id", "malformed"),
     ],
 )
-def test_malformed_cache_never_signs_in_or_overwrites_credentials(tmp_path, field, value):
-    client, venue, wallet, key, path = setup_cache(tmp_path)
-    data = json.loads(path.read_text())
+def test_malformed_cache_never_signs_in_or_overwrites_credentials(cached_account, field, value):
+    data = json.loads(cached_account.path.read_text())
     data[field] = value
-    path.write_text(json.dumps(data))
-    before = path.read_bytes(), len(venue.paths)
+    cached_account.path.write_text(json.dumps(data))
+    before = cached_account.path.read_bytes(), len(cached_account.venue.paths)
     with pytest.raises(SafetyError):
-        client.authenticate_cached(wallet, key, "tradegods-z", path)
-    assert (path.read_bytes(), len(venue.paths)) == before
-    assert venue.signins == 1
+        cached_account.client.authenticate_cached(
+            cached_account.wallet, cached_account.key, "tradegods-z", cached_account.path
+        )
+    assert (cached_account.path.read_bytes(), len(cached_account.venue.paths)) == before
+    assert cached_account.venue.signins == 1
 
 
-def test_session_renewal_requires_stream_and_pending_command_quiescence(tmp_path):
-    client, venue, wallet, key, path = setup_cache(tmp_path)
+def test_session_renewal_requires_stream_and_pending_command_quiescence(cached_account):
     for field, value in [
         ("_stream_connected", True),
         ("uncertain_commands", {"intent": object()}),
         ("_pending_cancels", {"order": "BTCUSDCPERP"}),
     ]:
-        previous = getattr(client, field)
-        setattr(client, field, value)
+        previous = getattr(cached_account.client, field)
+        setattr(cached_account.client, field, value)
         with pytest.raises(SafetyError, match="reconcile pending"):
-            client.authenticate_cached(wallet, key, "tradegods-z", path)
-        setattr(client, field, previous)
-    assert venue.signins == 1
+            cached_account.client.authenticate_cached(
+                cached_account.wallet, cached_account.key, "tradegods-z", cached_account.path
+            )
+        setattr(cached_account.client, field, previous)
+    assert cached_account.venue.signins == 1
 
 
 def test_live_signin_requires_explicit_name_and_persistent_key_before_io():
@@ -186,7 +214,9 @@ def test_live_signin_requires_explicit_name_and_persistent_key_before_io():
     assert not venue.paths
 
 
-def test_owner_only_key_and_session_files_reject_symlinks_and_public_permissions(tmp_path):
+def test_owner_only_key_and_session_files_reject_symlinks_and_public_permissions(
+    cached_account, tmp_path
+):
     _, key = demo_identity()
     pem = key.private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
@@ -206,16 +236,16 @@ def test_owner_only_key_and_session_files_reject_symlinks_and_public_permissions
     link.symlink_to(path)
     with pytest.raises(OSError):
         load_ed25519_private_key(link)
-    client, venue, wallet, key, cache = setup_cache(tmp_path)
-    cache.chmod(0o644)
+    cached_account.path.chmod(0o644)
     with pytest.raises(SafetyError, match="owner-only"):
-        client.authenticate_cached(wallet, key, "tradegods-z", cache)
-    assert venue.signins == 1
+        cached_account.client.authenticate_cached(
+            cached_account.wallet, cached_account.key, "tradegods-z", cached_account.path
+        )
+    assert cached_account.venue.signins == 1
 
 
-def test_identity_exposes_backend_uuid_and_padded_name_without_token(tmp_path):
-    client, _, wallet, _, _ = setup_cache(tmp_path)
-    identity = client.identity()
+def test_identity_exposes_backend_uuid_and_padded_name_without_token(cached_account):
+    identity = cached_account.client.identity()
     assert identity["id"] == ACCOUNT_ID
-    assert identity["name"] == subaccount_sender(wallet.address, "tradegods-z")[-24:]
+    assert identity["name"] == subaccount_sender(cached_account.wallet.address, "tradegods-z")[-24:]
     assert "api_key" not in identity
