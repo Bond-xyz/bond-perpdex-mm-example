@@ -4,7 +4,7 @@ import json
 import uuid
 from urllib.parse import parse_qs
 
-from .models import Json, OrderIntent, SafetyError
+from .models import Json, OrderIntent, PreparedRequest, SafetyError
 
 
 def websocket_order_place(intent: OrderIntent, *, request_id: str | None = None) -> Json:
@@ -45,5 +45,26 @@ def websocket_order_place(intent: OrderIntent, *, request_id: str | None = None)
     return {
         "id": request_id or str(uuid.uuid4()),
         "method": "order.place",
+        "params": params,
+    }
+
+
+def websocket_cancel_all(request: "PreparedRequest", *, request_id: str | None = None) -> Json:
+    """Use the signed WS command while Galileo's public REST DELETE is misrouted."""
+    if (request.method, request.path) != ("DELETE", "/fapi/v1/openOrders"):
+        raise SafetyError("Expected a perpetual whole-symbol cancellation")
+    fields = parse_qs(request.body, keep_blank_values=True, strict_parsing=True)
+    if any(len(values) != 1 for values in fields.values()):
+        raise SafetyError("Duplicate cancellation form field")
+    params = {key: values[0] for key, values in fields.items()}
+    if set(params) != {"symbol", "newClientOrderId", "timestamp", "recvWindow", "signature"}:
+        raise SafetyError("Missing or unexpected cancellation fields")
+    if not request.headers.get("x-api-key") or not all(params.values()):
+        raise SafetyError("Signed cancellation requires a SIWE session and receipt key")
+    params["timestamp"] = int(params["timestamp"])
+    params["apiKey"] = request.headers["x-api-key"]
+    return {
+        "id": request_id or str(uuid.uuid4()),
+        "method": "openOrders.cancelAll",
         "params": params,
     }

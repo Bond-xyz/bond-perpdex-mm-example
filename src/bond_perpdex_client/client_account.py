@@ -3,11 +3,18 @@
 import uuid
 from collections.abc import Iterator
 
-from .models import AccountSnapshot, Json, SafetyError, UserStreamMessage, decimal
+from .models import AccountSnapshot, Json, PreparedRequest, SafetyError, UserStreamMessage, decimal
 
 
 class AccountQueries:
     """Read-side operations; the composed client supplies signed transport."""
+
+    def identity(self) -> Json:
+        """Return backend account UUID, owner and padded name, never the session token."""
+        session = self._active_session()
+        return self._object(
+            self._send(PreparedRequest("GET", "/auth/me", "", {"x-api-key": session.api_key}))
+        )
 
     def account(self) -> Json:
         """Return the venue's account projection, including collateral balances."""
@@ -104,7 +111,13 @@ class AccountQueries:
         *,
         max_events: int = 100,
         max_reconnects: int = 2,
+        idle_timeout: float = 5,
     ) -> Iterator[UserStreamMessage]:
         from .user_stream import user_events
 
-        return user_events(self, max_events=max_events, max_reconnects=max_reconnects)
+        return user_events(
+            self,
+            max_events=max_events,
+            max_reconnects=max_reconnects,
+            idle_timeout=idle_timeout,
+        )

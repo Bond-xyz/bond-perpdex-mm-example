@@ -13,7 +13,25 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 
 from .models import Json, Market, PreparedRequest, SafetyError, decimal, units
+from .registry import SigningRegistry
 from .signing import WalletSigner, canonical_form, order_hashes, subaccount_sender, typed_message
+
+# Synthetic signing domains: these are never live defaults.
+OFFLINE_REGISTRY = SigningRegistry.from_dict(
+    {
+        "chainId": 16602,
+        "contracts": {"endpointProxy": "0x" + "99" * 20},
+        "markets": {
+            symbol: {"productId": product, "virtualBook": "0x" + byte * 20}
+            for symbol, product, byte in [
+                ("BTCUSDCPERP", 2, "22"),
+                ("ETHUSDCPERP", 4, "33"),
+                ("SOLUSDCPERP", 6, "44"),
+                ("0GUSDCPERP", 8, "55"),
+            ]
+        },
+    }
+)
 
 NOW_MS = 1_770_000_000_000
 EXCHANGE_INFO = {
@@ -73,6 +91,7 @@ class OfflineVenue:
     offline = True
 
     def __init__(self):
+        self.signing_registry = OFFLINE_REGISTRY
         self.now_ms = NOW_MS
         self.orders: dict[str, Json] = {}
         self.calls: list[tuple[str, str]] = []
@@ -119,6 +138,17 @@ class OfflineVenue:
                 "api_key": "offline-session-not-a-credential",
                 "expires_at": "2026-02-02T03:40:00+00:00",
                 "id": "00000000-0000-4000-8000-000000000001",
+            }
+        if request.method == "GET" and parsed.path == "/auth/me":
+            if (
+                self.owner is None
+                or request.headers.get("x-api-key") != "offline-session-not-a-credential"
+            ):
+                raise SafetyError("Missing session")
+            return {
+                "id": "00000000-0000-4000-8000-000000000001",
+                "address": self.owner[2:],
+                "name": subaccount_sender(self.owner, self.subaccount)[-24:],
             }
         fields = self._verify_request(request)
         if (
@@ -211,7 +241,7 @@ class OfflineVenue:
         return fields
 
     def _place(self, fields: Json) -> Json:
-        market = Market.from_exchange_info(EXCHANGE_INFO, fields["symbol"])
+        market = Market.from_exchange_info(EXCHANGE_INFO, fields["symbol"], self.signing_registry)
         price, quantity = decimal(fields["price"]), decimal(fields["quantity"])
         market.validate_order(price, quantity)
         envelope = json.loads(fields["signedOrder"])

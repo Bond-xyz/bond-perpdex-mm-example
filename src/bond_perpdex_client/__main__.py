@@ -12,12 +12,7 @@ from .strategy import DepthBook, MakerPolicy
 from .transport import TestnetReadOnlyTransport
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path)
-    parser.add_argument("--testnet-read-only", action="store_true")
-    args = parser.parse_args()
-    settings = json.loads(args.config.read_text()) if args.config else {}
+def run(settings: dict, *, public_read_only: bool = False) -> None:
     if settings.get("mode", "offline") != "offline":
         raise SafetyError(
             "The CLI supports only offline configuration; use the sample client for private I/O"
@@ -41,15 +36,20 @@ def main() -> None:
     )
     config.validate()
     symbol = settings.get("symbol", "BTCUSDCPERP")
-    if args.testnet_read_only:
+    if public_read_only:
         transport = TestnetReadOnlyTransport(config)
         client = BondPerpDexClient(transport, config=config)
-        market = client.market(symbol)
+        info = client.exchange_info()
+        if not any(
+            item.get("symbol") == symbol and item.get("status") == "TRADING"
+            for item in info["symbols"]
+        ):
+            raise SafetyError("Public market unavailable")
         print(
             json.dumps(
                 {
                     "mode": "testnet-public-read-only",
-                    "symbol": market.symbol,
+                    "symbol": symbol,
                     "depth": client.depth(symbol),
                 }
             )
@@ -115,6 +115,15 @@ def main() -> None:
         f"PASS: {len(quotes)} signed quotes, confirmed cancellations, no open orders; "
         "zero network/transactions."
     )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", type=Path)
+    parser.add_argument("--testnet-read-only", action="store_true")
+    args = parser.parse_args()
+    settings = json.loads(args.config.read_text()) if args.config else {}
+    run(settings, public_read_only=args.testnet_read_only)
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@
   "allow_live_private": false,
   "allow_live_orders": false,
   "symbol": "BTCUSDCPERP",
-  "subaccount": "bond",
+  "subaccount": "tradegods-z",
   "quantity": "0.002",
   "half_spread_bps": 10,
   "max_position": "0.010",

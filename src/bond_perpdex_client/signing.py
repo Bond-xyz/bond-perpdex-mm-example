@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import re
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
 from urllib.parse import quote_plus
@@ -14,7 +15,7 @@ from eth_account import Account
 from eth_account.messages import SignableMessage, encode_defunct, encode_typed_data
 from eth_utils import keccak
 
-from .models import CHAIN_ID, VIRTUAL_BOOKS, Json, Market, SafetyError, Side, units
+from .models import CHAIN_ID, Json, Market, SafetyError, Side, units
 
 ORDER_TYPE = "Order(bytes32 sender,int128 priceX18,int128 amount,uint64 expiration,uint64 nonce)"
 ORDER_FIELDS = [
@@ -50,8 +51,8 @@ def signed_form(fields: Json, key: Ed25519PrivateKey) -> str:
 
 def subaccount_sender(owner: str, name: str) -> str:
     encoded = name.encode()
-    if not 1 <= len(encoded) <= 12 or not name.isascii() or not name.isalnum():
-        raise SafetyError("Use a 1-12 byte ASCII alphanumeric subaccount name")
+    if not 1 <= len(encoded) <= 12 or any(byte < 33 or byte > 126 for byte in encoded):
+        raise SafetyError("Use a 1-12 byte printable ASCII subaccount name without spaces")
     return owner.lower() + encoded.hex().ljust(24, "0")
 
 
@@ -74,8 +75,9 @@ class WalletSigner:
         self._account = Account.from_key(private_key)
 
     @classmethod
-    def from_environment(cls) -> "WalletSigner":
-        raw = os.environ.get("BOND_TESTNET_WALLET_KEY", "")
+    def from_environment(cls, environment: Mapping[str, str] | None = None) -> "WalletSigner":
+        values = os.environ if environment is None else environment
+        raw = values.get("BOND_TESTNET_WALLET_KEY", "")
         if not re.fullmatch(r"(?:0x)?[0-9a-fA-F]{64}", raw):
             raise SafetyError("BOND_TESTNET_WALLET_KEY must contain a 32-byte testnet wallet key")
         try:
@@ -121,8 +123,6 @@ class WalletSigner:
         expires_at: int,
         nonce: int,
     ) -> Json:
-        if (market.product_id, market.virtual_book) != VIRTUAL_BOOKS.get(market.symbol):
-            raise SafetyError("Order domain differs from the pinned testnet registry")
         market.validate_order(price, quantity)
         if side not in {"BUY", "SELL"} or type(nonce) is not int or not 0 < nonce < 2**64:
             raise SafetyError("Invalid side or uint64 order nonce")

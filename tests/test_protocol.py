@@ -139,3 +139,11 @@ def test_valid_outer_signature_does_not_hide_wrong_inner_signed_terms(connected)
     with pytest.raises(UnknownOutcome):
         client.submit_offline(replace(intent, request=changed))
     assert not venue.orders
+
+
+def test_offline_identity_uses_the_authenticated_wallet_and_name(connected):
+    client, _, wallet, _ = connected
+    me = client.identity()
+    assert me["address"] == wallet.address[2:]
+    assert me["name"] == subaccount_sender(wallet.address, "bond")[-24:]
+    assert "api_key" not in me

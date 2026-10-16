@@ -6,7 +6,7 @@ import uuid
 from urllib.parse import parse_qs
 
 from .models import (
-    VIRTUAL_BOOKS,
+    SUPPORTED_SYMBOLS,
     Json,
     Market,
     OrderIntent,
@@ -29,7 +29,8 @@ class OrderCommands:
         market: Market,
         quote: Quote,
         *,
-        subaccount: str = "bond",
+        subaccount: str | None = None,
+        endpoint_time: int | None = None,
         nonce: int | None = None,
         client_order_id: str | None = None,
     ) -> OrderIntent:
@@ -38,6 +39,12 @@ class OrderCommands:
             if self.halted:
                 raise SafetyError("Client halted; resolve unknown outcomes before restarting")
             session = self._active_session()
+            subaccount = session.subaccount if subaccount is None else subaccount
+            if self.signing_registry is None or (
+                market.product_id,
+                market.virtual_book,
+            ) != self.signing_registry.markets.get(market.symbol):
+                raise SafetyError("Order domain differs from the verified signing registry")
             if wallet.address != session.owner or subaccount != session.subaccount:
                 raise SafetyError("Wallet and subaccount must match the authenticated session")
             market.validate_order(quote.price, quote.quantity)
@@ -46,6 +53,19 @@ class OrderCommands:
             nonce = nonce if nonce is not None else secrets.randbits(64) | 1
             if nonce in self._nonces:
                 raise SafetyError("Order nonce was already allocated; it cannot be reused")
+            if endpoint_time is None:
+                if not self.transport.offline:
+                    raise SafetyError("Read verified Endpoint time before preparing a live order")
+                endpoint_time = self.clock_ms() // 1000
+            if type(endpoint_time) is not int or not 0 < endpoint_time < 2**58 - 60:
+                raise SafetyError(
+                    "Endpoint time must be a positive timestamp fitting the signed expiry"
+                )
+            # Ingress also checks wall time. Endpoint time can lag between batches.
+            ingress_time = self.clock_ms() // 1000
+            if not 0 < ingress_time < 2**58 - 60:
+                raise SafetyError("Client clock must fit the signed expiry")
+            expires_at = max(endpoint_time, ingress_time) + 60
             self._nonces.add(nonce)
             envelope = wallet.order(
                 market,
@@ -53,7 +73,7 @@ class OrderCommands:
                 quote.price,
                 quote.quantity,
                 subaccount,
-                self.clock_ms() // 1000 + 60,
+                expires_at,
                 nonce,
             )
             client_id = client_order_id or str(uuid.uuid4())
@@ -89,9 +109,12 @@ class OrderCommands:
         fields = {key: values[0] for key, values in parse_qs(intent.request.body).items()}
         if fields.get("type") != "POST_ONLY" or fields.get("timeInForce") != "GTC":
             raise SafetyError("Only POST_ONLY/GTC placement is supported")
-        if fields.get("symbol") not in VIRTUAL_BOOKS:
-            raise SafetyError("Unknown testnet market")
-        product_id, virtual_book = VIRTUAL_BOOKS[fields["symbol"]]
+        if (
+            self.signing_registry is None
+            or fields.get("symbol") not in self.signing_registry.markets
+        ):
+            raise SafetyError("Load the verified signing registry for this market")
+        product_id, virtual_book = self.signing_registry.markets[fields["symbol"]]
         envelope = json.loads(fields["signedOrder"])
         if (
             envelope["domain"]
@@ -199,7 +222,10 @@ class OrderCommands:
         with self._lock:
             self._permission(mutation=True)
             uuid.UUID(order_id)
-            if (market.product_id, market.virtual_book) != VIRTUAL_BOOKS.get(market.symbol):
+            if self.signing_registry is None or (
+                market.product_id,
+                market.virtual_book,
+            ) != self.signing_registry.markets.get(market.symbol):
                 raise SafetyError("Unknown testnet market")
             if order_id in self._cancel_attempted:
                 raise SafetyError("Cancellation was already attempted; no automatic retry")
@@ -250,7 +276,7 @@ class OrderCommands:
     ) -> list[Json]:
         with self._lock:
             self._permission(mutation=True)
-            if confirm_all_for_symbol is not True or symbol not in VIRTUAL_BOOKS:
+            if confirm_all_for_symbol is not True or symbol not in SUPPORTED_SYMBOLS:
                 raise SafetyError("Explicit whole-symbol cancellation confirmation is required")
             if symbol in self._uncertain_cancel_all:
                 raise SafetyError("Previous cancel-all is uncertain; do not sweep or retry again")
@@ -266,11 +292,18 @@ class OrderCommands:
                     "newClientOrderId": client_order_id,
                 },
             )
+            send = (
+                self._send
+                if self.transport.offline
+                else getattr(self.transport, "trading_request", None)
+            )
+            if not callable(send):
+                raise SafetyError("This transport does not support signed WebSocket cancel-all")
             self._attempted.add(client_order_id)
             self._uncertain_cancel_all.add(symbol)
             self.uncertain_commands[client_order_id] = request
             try:
-                results = self._objects(self._send(request))
+                results = self._objects(send(request))
                 ids = set()
                 for result in results:
                     uuid.UUID(result["orderId"])

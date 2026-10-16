@@ -4,13 +4,14 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from .credentials import Session, SessionCache
 from .models import (
-    VIRTUAL_BOOKS,
+    SUPPORTED_SYMBOLS,
     Json,
     Market,
     PreparedRequest,
@@ -20,15 +21,6 @@ from .models import (
 )
 from .signing import WalletSigner, canonical_form, compact, signed_form
 from .transport import TestnetReadOnlyTransport, Transport
-
-
-@dataclass(repr=False)
-class Session:
-    api_key: str = field(repr=False)
-    key: Ed25519PrivateKey = field(repr=False)
-    expires_at_ms: int
-    owner: str
-    subaccount: str
 
 
 class SessionClient:
@@ -45,6 +37,9 @@ class SessionClient:
         config.validate()
         self.config = config
         self.transport = transport if transport is not None else TestnetReadOnlyTransport(config)
+        self.signing_registry = config.signing_registry or (
+            getattr(self.transport, "signing_registry", None) if self.transport.offline else None
+        )
         self.clock_ms = clock_ms
         self._session: Session | None = None
         self._lock = threading.RLock()
@@ -93,10 +88,14 @@ class SessionClient:
         return self._object(self._send(PreparedRequest("GET", "/fapi/v1/exchangeInfo", "")))
 
     def market(self, symbol: str) -> Market:
-        return Market.from_exchange_info(self.exchange_info(), symbol)
+        if self.signing_registry is None:
+            raise SafetyError(
+                "Load an operator-verified signing registry before selecting a trading market"
+            )
+        return Market.from_exchange_info(self.exchange_info(), symbol, self.signing_registry)
 
     def depth(self, symbol: str) -> Json:
-        if symbol not in VIRTUAL_BOOKS:
+        if symbol not in SUPPORTED_SYMBOLS:
             raise SafetyError("Unsupported testnet market")
         query = canonical_form({"symbol": symbol, "limit": 20})
         return self._object(self._send(PreparedRequest("GET", "/fapi/v1/depth?" + query, "")))
@@ -114,9 +113,17 @@ class SessionClient:
         self,
         wallet: WalletSigner,
         key: Ed25519PrivateKey | None = None,
-        subaccount: str = "bond",
+        subaccount: str | None = None,
     ) -> None:
         self._permission()
+        if not self.transport.offline and (subaccount is None or key is None):
+            raise SafetyError(
+                "Live sign-in requires an explicit subaccount and persistent Ed25519 key"
+            )
+        subaccount = subaccount if subaccount is not None else "bond"
+        from .signing import subaccount_sender
+
+        subaccount_sender(wallet.address, subaccount)
         key = key or Ed25519PrivateKey.generate()
         self._session = None
         nonce = self._object(self._send(PreparedRequest("GET", "/auth/nonce", "")))["nonce"]
@@ -143,18 +150,54 @@ class SessionClient:
                 or expiry <= self.clock_ms()
             ):
                 raise SafetyError("Invalid sign-in response")
-            self._session = Session(result["api_key"], key, expiry, wallet.address, subaccount)
+            self._session = Session(
+                result["api_key"], key, expiry, wallet.address, subaccount, result["id"]
+            )
         except Exception:
             self.halted = True
             raise UnknownOutcome(
                 "Sign-in outcome uncertain; old credentials discarded, no retry"
             ) from None
 
+    def authenticate_cached(
+        self,
+        wallet: WalletSigner,
+        key: Ed25519PrivateKey,
+        subaccount: str,
+        session_file: str | Path,
+    ) -> None:
+        """Reuse a matching token or explicitly renew within 24 hours of expiry.
+
+        Call at startup or a coordinated renewal boundary, after closing streams
+        and reconciling uncertain commands. This is not a background renewer.
+        """
+        self._permission()
+        if self._stream_connected or self.uncertain_commands or self._pending_cancels:
+            raise SafetyError("Close streams and reconcile pending commands before session renewal")
+        cache = SessionCache(
+            session_file,
+            self.config.http_url,
+            self.config.chain_id,
+            wallet.address,
+            subaccount,
+            key,
+        )
+        candidate = cache.load()
+        if candidate is not None and not candidate.needs_renewal(self.clock_ms()):
+            me = self._object(
+                self._send(PreparedRequest("GET", "/auth/me", "", {"x-api-key": candidate.api_key}))
+            )
+            cache.validate_identity(me, candidate)
+            self._session = candidate
+            return
+        self.authenticate(wallet, key, subaccount)
+        cache.save(self._active_session())
+
     def _private(self, method: str, path: str, fields: Json) -> PreparedRequest:
         session = self._active_session()
         if method != "GET":
             self._permission(mutation=True)
-        if fields.get("symbol") is not None and fields["symbol"] not in VIRTUAL_BOOKS:
+        if fields.get("symbol") is not None and fields["symbol"] not in SUPPORTED_SYMBOLS:
             raise SafetyError("Unsupported testnet market")
         body = signed_form(
             {**fields, "timestamp": self.clock_ms(), "recvWindow": 5000}, session.key
