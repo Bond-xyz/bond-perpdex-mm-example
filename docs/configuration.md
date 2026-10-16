@@ -45,6 +45,17 @@ inputs; they do not automatically load `.env`. The older `config.example.json`
 configures `python -m bond_perpdex_client --config ...` only. Use the quick-start
 runner for the unified dotenv workflow; it does not merge the JSON configuration.
 
+The individual scripts and quick-start profiles share credential setup and
+supervised trade/stream flows in `workflows.py`. `credentials.py` owns cache
+identity checks and token-file serialization; `client_session.py` coordinates
+authentication and renewal. The cache format and explicit permission flags are
+the same across these entry points.
+
+A quiet stream reconciles REST after its final disconnect and exits cleanly at
+the configured reconnect budget. Subscription rejection, invalid events and
+failed REST reconciliation still stop the run with an error. These bounded
+profiles do not run a persistent reconnect loop.
+
 ## Supply account credentials and signing context
 
 Before private modes, supply `BOND_TESTNET_WALLET_KEY` through a secret manager

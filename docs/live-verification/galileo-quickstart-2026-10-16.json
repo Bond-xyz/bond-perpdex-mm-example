@@ -1,0 +1,127 @@
+{
+  "observed_at": "2026-10-16T09:46:01.446209+00:00",
+  "merged_pr": "https://github.com/Bond-xyz/bond-perpdex-mm-example/pull/3",
+  "merged_head": "847afd9bcef6d2bc20f175fe50fd5cb1699359a3",
+  "tested_refactor_head": "cfbc00ce8b8af02eabbcd9ac19ae85f5a305e8eb",
+  "backend_source": "df07bef07f7e6098861fae2a8435132aadff11a4",
+  "registry_sha256": "cf93d95908d454404879fa969dd8b1857f41b389f9b6a26def96eda9689ecdfc",
+  "subaccount": "tradegods-z",
+  "wallet": "0x7B98694Fd4c2b26f8418bb01be64ff4e2B263876",
+  "baseline": {
+    "unit_tests_passed": 191,
+    "quiet_stream_exit_code": 1,
+    "quiet_stream_error": "Private stream reconnect budget exhausted"
+  },
+  "verified_cli_cases": [
+    {
+      "case": "setup",
+      "exit_code": 0,
+      "expected": "success"
+    },
+    {
+      "case": "offline",
+      "exit_code": 0,
+      "expected": "success"
+    },
+    {
+      "case": "offline_override",
+      "exit_code": 0,
+      "expected": "success"
+    },
+    {
+      "case": "show_config",
+      "exit_code": 0,
+      "expected": "success"
+    },
+    {
+      "case": "private",
+      "exit_code": 0,
+      "expected": "success"
+    },
+    {
+      "case": "private_reuse",
+      "exit_code": 0,
+      "expected": "success"
+    },
+    {
+      "case": "stream_quiet",
+      "exit_code": 0,
+      "expected": "success"
+    },
+    {
+      "case": "trade_permission",
+      "exit_code": 1,
+      "expected": "permission rejected"
+    },
+    {
+      "case": "individual_rest",
+      "exit_code": 0,
+      "expected": "success"
+    },
+    {
+      "case": "individual_stream",
+      "exit_code": 0,
+      "expected": "success"
+    },
+    {
+      "case": "public",
+      "exit_code": 0,
+      "expected": "success"
+    }
+  ],
+  "config_key_and_session_unchanged": true,
+  "funded_quickstart": {
+    "order": {
+      "symbol": "BTCUSDCPERP",
+      "productId": 2,
+      "orderId": "95da556c-202f-48f2-952c-cd04fbce3640",
+      "clientOrderId": "030dfdb7-c5a2-43fe-befd-f278325bc66f",
+      "price": "81208.60",
+      "origQty": "0.002",
+      "executedQty": "0",
+      "status": "CANCELED",
+      "type": "POST_ONLY",
+      "side": "BUY",
+      "time": 1792143892265,
+      "updateTime": 1792143898562
+    },
+    "notional": "162.41720",
+    "script_error": null,
+    "private_cancellation_event_observed": true,
+    "stream_exit_code": 0,
+    "final_open_orders": 0,
+    "final_position": "0",
+    "final_perp_collateral": "200",
+    "pending_deposits": 0,
+    "new_deposits": 0
+  },
+  "prior_admission_rejection": {
+    "client_order_id": "09a1ebcf-7447-4214-8bb1-cb7989232a8a",
+    "http_status": 503,
+    "reason": "ORACLE_ADMISSION_CLOSED",
+    "reconciliation": {
+      "disposition": "pre_dispatch_oracle_admission_rejection",
+      "order_lookup": "ORDER_NOT_FOUND",
+      "open_orders": 0,
+      "position_amount": "0",
+      "available_balance": "200",
+      "no_retry": true
+    },
+    "replayed": false
+  },
+  "local_checks": {
+    "tests_passed": 207,
+    "ruff_lint": "pass",
+    "ruff_format": "pass",
+    "dependency_check": "pass",
+    "shell_syntax": "pass"
+  },
+  "tested_code_sha256": {
+    "src/bond_perpdex_client/quickstart.py": "c4362435fd8f434cac37171639105ebb0d90a2d10d68d21db1d122c31c8b4d3c",
+    "src/bond_perpdex_client/workflows.py": "d1da6b0f9b9b77cb329dd1e1b5edd1f66a81d70b631a2684d998238465cfe233",
+    "src/bond_perpdex_client/credentials.py": "c8d4ead6d3b3667d5f78f46e617df61cfe498338206c2531af821da48982b680",
+    "src/bond_perpdex_client/client_session.py": "e5c152e9ff85d19b4e7b169231c87d15f910d95c22a28ace71a89a6216fb5866",
+    "examples/02_private_rest.py": "7eede205c4aa1a873fb1b8d318a5c5cd51b61821e5296a905d050ca3fd5b5de9",
+    "examples/03_private_stream.py": "9b8aba0ec3207ee23f4dae0b1d50d9c2eebcea5a65a54700b0cda1b5f9e7e2aa"
+  }
+}

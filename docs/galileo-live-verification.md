@@ -78,3 +78,41 @@ This verifies named-account funding, bounded order admission/cancellation,
 private notifications and reconciliation. It does not verify fills, fee/rebate
 economics, nonempty WebSocket cancel-all, sustained throughput or a long-running
 OEMS renewal scheduler. Public REST cancel-all still returns 405.
+
+## Quick-start merge and refactor verification
+
+After [PR #3](https://github.com/Bond-xyz/bond-perpdex-mm-example/pull/3) merged
+as `847afd9`, the unchanged baseline passed 191 tests. Actual Galileo checks
+reproduced one newly added runner defect: a quiet stream reconciled REST and
+then raised `Private stream reconnect budget exhausted`. The runner now exits
+cleanly after its final reconciled disconnect, while honoring its reconnect
+budget and propagating subscription, event-validation and reconciliation errors.
+
+The scripts and quick-start profiles now share account setup and supervised
+flows in `workflows.py`. Cache validation/serialization moved to `credentials.py`;
+session lifecycle decisions remain in `client_session.py`. The cache schema and
+public `Session` imports remain compatible. Cache tests use a named pytest fixture.
+
+Post-refactor verification on the same Galileo binding passed:
+
+- Actual `setup.sh`, offline defaults and spread/quantity overrides, redacted
+  config display, public mode, private reads twice, and quiet private streams.
+- Actual standalone REST and stream examples. The existing configuration,
+  Ed25519 key and cached session remained byte-for-byte unchanged.
+- Trade mode without `--allow-live-orders` rejected execution as intended.
+- The actual quick-start trade module placed/canceled order
+  `95da556c-202f-48f2-952c-cd04fbce3640`: **0.002 BTC POST_ONLY BUY at 81208.60**,
+  notional **162.41720 USDC**. The standalone stream received its cancellation
+  and position events. Final independent reads showed **CANCELED**, zero fills,
+  positions and open orders, and **200 USDC.e** perpetual collateral.
+- **207 tests**, Ruff lint/format, shell syntax and dependency checks passed.
+  Regression coverage includes quiet-stream completion with zero/two reconnects,
+  malformed caches and identity failures, and uncertain submit/cancel outcomes.
+
+An earlier attempt received `ORACLE_ADMISSION_CLOSED` (503). It was not replayed:
+its client-ID lookup returned `ORDER_NOT_FOUND`, with zero orders/positions and
+unchanged collateral. After reconciliation and operational venue checks, the
+successful test used a fresh intent. No new deposits or deployment changes were
+made. [Sanitized follow-on evidence and code hashes](live-verification/galileo-quickstart-2026-10-16.json)
+record both outcomes. Graphify has not supplied a fresh graph baseline for these
+refactors, so no claim is made about its updated coupling/impact scores.
