@@ -70,7 +70,7 @@ def main() -> None:
         key_path = settings.path("BOND_ED25519_PRIVATE_KEY_FILE")
         created = ensure_signing_key(key_path)
         print(f"{'Created' if created else 'Preserved existing'} Ed25519 key: {key_path}")
-    print("Ready: run ./quickstart.sh. Edit your environment file to tune the example.")
+    print("Ready: run make quickstart. Edit your environment file to tune the example.")
 
 
 if __name__ == "__main__":

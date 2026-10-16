@@ -1,20 +1,20 @@
 # Configure the maker example
 
-`./quickstart.sh` installs the Python environment if needed, creates an owner-only
+`make quickstart` installs the Python environment if needed, creates an owner-only
 `.env` with the example defaults, and runs the offline maker. Its account name is
 `tradegods-z`, with two-sided BTC quotes, quantity `0.002`, half-spread `10` bps,
 and the documented risk bounds. This completes without credentials or network
 requests after dependency installation.
 
 ```sh
-./quickstart.sh
-./quickstart.sh --show-config
+make quickstart
+make config
 ```
 
 To prepare configuration separately, optionally choose a different name:
 
 ```sh
-./setup.sh --subaccount my-maker
+make setup ARGS="--subaccount my-maker"
 ```
 
 Setup never overwrites an existing `.env`, even when passed `--subaccount`.
@@ -28,11 +28,11 @@ secrets from your shell into that file. `.env` is ignored and created with mode
 
 | Mode | Command | Behavior |
 | --- | --- | --- |
-| Offline maker (default) | `./quickstart.sh` | Deterministic BTC book, quote strategy, signed simulated orders and cleanup; no venue I/O. Spread, quantity, position/notional and freshness settings feed this strategy. |
-| Public data | `./quickstart.sh --mode public` | Bounded Galileo REST/depth stream reads; no wallet needed. |
-| Private account | `./quickstart.sh --mode private` | SIWE/session reuse, account UUID and REST position/open-order snapshot; no order writes. |
-| Private events | `./quickstart.sh --mode stream` | Signed private subscription, bounded events/reconnects and REST reconciliation; no order writes. |
-| Supervised order | `./quickstart.sh --mode trade --allow-live-orders` | One operator-priced order, cancellation attempt and terminal-state query. Requires the funded named account, wallet/key, verified registry and RPC. This does not run a continuous live quoting strategy. |
+| Offline maker (default) | `make quickstart` | Deterministic BTC book, quote strategy, signed simulated orders and cleanup; no venue I/O. Spread, quantity, position/notional and freshness settings feed this strategy. |
+| Public data | `make public` | Bounded Galileo REST/depth stream reads; no wallet needed. |
+| Private account | `make private` | SIWE/session reuse, account UUID and REST position/open-order snapshot; no order writes. |
+| Private events | `make stream` | Signed private subscription, bounded events/reconnects and REST reconciliation; no order writes. |
+| Supervised order | `make trade ARGS=--allow-live-orders` | One operator-priced order, cancellation attempt and terminal-state query. Requires the funded named account, wallet/key, verified registry and RPC. This does not run a continuous live quoting strategy. |
 
 Changing `BOND_MODE=trade` alone cannot place an order: the command flag is also
 required. Public/private modes do not run the offline quoting policy. Live orders
@@ -42,7 +42,7 @@ command state after a process restart.
 
 The individual `examples/` scripts retain their explicit flags and process-environment
 inputs; they do not automatically load `.env`. The older `config.example.json`
-configures `python -m bond_perpdex_client --config ...` only. Use the quick-start
+configures `make offline ARGS="--config ..."` only. Use the quick-start
 runner for the unified dotenv workflow; it does not merge the JSON configuration.
 
 The individual scripts and quick-start profiles share credential setup and
@@ -62,8 +62,8 @@ Before private modes, supply `BOND_TESTNET_WALLET_KEY` through a secret manager
 (or the owner-only `.env`), and create a persistent Ed25519 key:
 
 ```sh
-./setup.sh --generate-signing-key
-./quickstart.sh --mode private
+make setup ARGS=--generate-signing-key
+make private
 ```
 
 The key is generated locally at `BOND_ED25519_PRIVATE_KEY_FILE`, with mode `0600`;
@@ -84,22 +84,42 @@ account such as `tradegods-z` needs its own funding.
 ## Override settings and run separate instances
 
 Precedence is **command flags → process environment → `.env` → built-in defaults**.
-Only mode and live-order permission have command flags. Variables are parsed as
-literal data: optional quotes, comments and `export KEY=value` are supported;
+Pass CLI flags through Make's `ARGS` variable. Only mode and live-order permission
+have runner flags; `--env-file` selects the configuration file. Dotenv values are
+parsed as literal data: optional quotes, comments and `export KEY=value` are supported;
 shell commands, interpolation and variable expansion are never executed.
 Unknown or duplicate keys in `.env` are rejected. `--show-config` prints effective
 settings with wallet and RPC inputs redacted, and performs no venue requests.
 
 ```sh
-BOND_HALF_SPREAD_BPS=20 BOND_QUANTITY=0.003 ./quickstart.sh
-./setup.sh --env-file makers/team-z/.env --subaccount team-z
-./quickstart.sh --env-file makers/team-z/.env
+BOND_HALF_SPREAD_BPS=20 BOND_QUANTITY=0.003 make quickstart
+make setup ARGS="--env-file makers/team-z/.env --subaccount team-z"
+make quickstart ARGS="--env-file makers/team-z/.env"
 ```
 
 Relative registry, key and session paths resolve beside the selected environment
 file. Use a separate directory/name/key/cache per independent maker. Keep shared
 subaccount use coordinated: a new SIWE sign-in can invalidate another process's
 token. Never restart to bypass an uncertain-order halt.
+
+## Make targets and shell helpers
+
+Run commands from the repository root, or use `make -C /path/to/repo <target>`.
+The helpers under `scripts/` resolve the repository root before touching `.venv`
+or configuration. `make install` explicitly installs/updates dependencies; the
+setup and quick-start targets bootstrap automatically when the local environment
+is absent.
+`make check` runs tests, lint, format, dependency and shell-syntax checks.
+
+Generate the public template and variable reference through Make:
+
+```sh
+make env-template > .env.example
+make env-reference
+```
+
+`make trade` still requires `ARGS=--allow-live-orders`; selecting the target or
+setting `BOND_MODE=trade` alone does not grant order permission.
 
 ## Variables and consuming modules
 

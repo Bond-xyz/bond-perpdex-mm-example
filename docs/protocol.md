@@ -10,7 +10,7 @@ real testnet usage, protocol details, and source evidence.
 From the project directory, run:
 
 ```sh
-.venv/bin/python -m bond_perpdex_client --testnet-read-only
+make public
 ```
 
 This makes real public testnet requests: it fetches `exchangeInfo` and a depth
@@ -310,12 +310,9 @@ caller-supplied orders. Strategy rounding goes outward to the tick.
 ## Checks
 
 ```sh
-.venv/bin/ruff format --check src tests examples
-.venv/bin/ruff check src tests examples
-.venv/bin/pytest -q
-.venv/bin/pytest -q tests/test_smoke.py
-.venv/bin/python -m bond_perpdex_client
-.venv/bin/python -m pip check
+make check
+make test ARGS=tests/test_smoke.py
+make offline
 ```
 
 Tests forbid sockets and DNS at the fixture boundary. They exercise source

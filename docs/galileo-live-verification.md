@@ -116,3 +116,20 @@ successful test used a fresh intent. No new deposits or deployment changes were
 made. [Sanitized follow-on evidence and code hashes](live-verification/galileo-quickstart-2026-10-16.json)
 record both outcomes. Graphify has not supplied a fresh graph baseline for these
 refactors, so no claim is made about its updated coupling/impact scores.
+
+## Make entrypoint verification
+
+After PR #2 merged as `92a569c`, the shell helpers moved into `scripts/` and the
+documented commands moved behind Make targets. A fresh copy, including paths
+with spaces, passed automatic dependency installation, named configuration/key
+setup, offline defaults and overrides, argument forwarding, generated template
+and reference checks, and `make check` (**207 tests**, lint/format, dependency
+and shell-syntax checks).
+
+Actual Make targets also passed Galileo private reads with session reuse, quiet
+private subscriptions and reconciliation, standalone REST/stream examples, and
+rejection of trade mode without explicit order permission. Configuration, key
+and session files remained unchanged. No orders or deposits were sent during
+these checks. The public REST snapshot succeeded, but the depth WebSocket
+timed out twice at the existing five-second receive deadline; public streaming
+did not pass this follow-on check.

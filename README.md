@@ -9,18 +9,18 @@ This is reference source, not a published SDK or an unattended market maker.
 ## Quick start with editable defaults
 
 ```sh
-./quickstart.sh
+make quickstart
 ```
 
 This installs dependencies if needed, creates an ignored owner-only `.env`, and
 runs the offline maker with `tradegods-z` and the example strategy/risk defaults.
-Use `./quickstart.sh --show-config` to inspect effective settings. Edit `.env`
+Use `make config` to inspect effective settings. Edit `.env`
 or override values in your process environment to tune the example.
 
 ```sh
-BOND_HALF_SPREAD_BPS=20 BOND_QUANTITY=0.003 ./quickstart.sh
-./setup.sh --generate-signing-key
-./quickstart.sh --mode private
+BOND_HALF_SPREAD_BPS=20 BOND_QUANTITY=0.003 make quickstart
+make setup ARGS=--generate-signing-key
+make private
 ```
 
 Private modes require your wallet credentials. Live trade mode additionally needs
@@ -30,13 +30,15 @@ explains every variable, default, consuming module, mode and setup step.
 
 ## Individual examples
 
-Python 3.12+ and a POSIX shell are required.
+Python 3.12+, Make and a POSIX shell are required. Use `make help` for targets
+and pass additional CLI flags through `ARGS`. Shell helpers live in `scripts/`;
+the Make targets handle their working directory and environment setup.
 
 ```sh
-sh install.sh
-.venv/bin/python examples/01_signing_offline.py
-.venv/bin/python -m bond_perpdex_client
-.venv/bin/python examples/04_provisioned_key_headers.py
+make install
+make signing
+make offline
+make bot-headers
 ```
 
 These commands send no requests. The signing vector and offline maker use
@@ -50,7 +52,7 @@ The installable project is `bond-perpdex-mm-example`; its Python import is
 | `02_private_rest.py` | SIWE account reads; `--place` additionally sends one REST order and attempts cancellation. |
 | `03_private_stream.py` | Timestamp-bound `userDataStream.subscribe.signature`; bounded private events, no orders. |
 | `04_provisioned_key_headers.py` | Synthetic managed-key writer REST headers; no credentials read and no network. |
-| `python -m bond_perpdex_client --testnet-read-only` | Public exchangeInfo, depth and bounded market-stream reads; no credentials or orders. |
+| `make public` | Public exchangeInfo, depth and bounded market-stream reads; no credentials or orders. |
 
 ## Select your account and retain its credentials
 
@@ -64,13 +66,13 @@ Create an Ed25519 PKCS#8 PEM through your key manager, retain it outside this re
 and restrict its permissions to `0600`. Then run:
 
 ```sh
-.venv/bin/python examples/02_private_rest.py \
-  --subaccount tradegods-z --ed25519-key /secure/galileo-ed25519.pem \
-  --session-file /secure/galileo.session.json
+make rest-example \
+  ARGS="--subaccount tradegods-z --ed25519-key /secure/galileo-ed25519.pem \
+  --session-file /secure/galileo.session.json"
 
-.venv/bin/python examples/03_private_stream.py \
-  --subaccount tradegods-z --ed25519-key /secure/galileo-ed25519.pem \
-  --session-file /secure/galileo.session.json --max-events 5 --idle-timeout 15
+make stream-example \
+  ARGS="--subaccount tradegods-z --ed25519-key /secure/galileo-ed25519.pem \
+  --session-file /secure/galileo.session.json --max-events 5 --idle-timeout 15"
 ```
 
 The optional session file securely caches the token, account UUID, public-key
@@ -97,13 +99,16 @@ Repository access may be required. `exchangeInfo` supplies filters, not the nume
 product-ID/VirtualBook mapping. A registry file is explicit input, not proof of
 its own deployment validity. Refresh it after rotations.
 
-Only after funding the chosen subaccount and choosing price/size, append these
-arguments to example 02 (the environment values must be operator supplied):
+Only after funding the chosen subaccount and setting your price, quantity,
+registry and RPC in the configured environment, run:
 
 ```sh
---place --side BUY --price "$BOND_LIMIT_PRICE" --quantity "$BOND_ORDER_QUANTITY" \
---registry /secure/perpdex.local.json --rpc-url "$BOND_GALILEO_RPC_URL"
+make trade ARGS=--allow-live-orders
 ```
+
+`make trade` alone rejects execution. For the individual REST example, pass
+`--place`, side, price, quantity, registry and RPC through `ARGS`; use
+`make rest-example ARGS=--help` for its required account and order flags.
 
 Live order preparation checks Galileo RPC chain identity and reads the verified
 Endpoint's `getTime()` for signed expiry. Expiry is 60 seconds after the later
@@ -129,11 +134,8 @@ See [funding and all six integration answers](docs/oems-integration.md).
 ## Checks and evidence
 
 ```sh
-.venv/bin/ruff format --check src tests examples
-.venv/bin/ruff check src tests examples
-.venv/bin/pytest -q
-.venv/bin/python examples/01_signing_offline.py
-.venv/bin/python -m pip check
+make check
+make signing
 ```
 
 Tests block sockets/DNS and use mock transports. Source/runtime checks on
