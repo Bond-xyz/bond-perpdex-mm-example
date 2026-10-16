@@ -52,10 +52,11 @@ def run(settings: Settings, *, allow_live_orders: bool = False) -> None:
     if mode == "private":
         return
     if mode == "stream":
+        reconnects = settings.integer("BOND_MAX_RECONNECTS", 0, 3)
         with closing(
             client.user_events(
                 max_events=settings.integer("BOND_MAX_EVENTS", 1, 10_000),
-                max_reconnects=settings.integer("BOND_MAX_RECONNECTS", 0, 3),
+                max_reconnects=reconnects,
                 idle_timeout=settings.integer("BOND_STREAM_IDLE_TIMEOUT_SECONDS", 1, 60),
             )
         ) as messages:
@@ -63,6 +64,8 @@ def run(settings: Settings, *, allow_live_orders: bool = False) -> None:
                 print(f"Private stream: {message.kind}; {message.reason}")
                 if message.requires_reconciliation:
                     client.reconcile_account(symbol)
+                if message.kind == "disconnected" and message.generation >= reconnects:
+                    break
         return
 
     market = client.market(symbol)

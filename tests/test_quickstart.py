@@ -137,6 +137,49 @@ def test_show_config_does_not_authenticate_or_emit_wallet_secret(configured, mon
     assert "<set>" in output and "never-log-this" not in output
 
 
+@pytest.mark.parametrize("reconnects", [0, 2])
+def test_quiet_stream_reconciles_and_exits_at_its_configured_budget(
+    configured, monkeypatch, reconnects
+):
+    from bond_perpdex_client.models import UserStreamMessage
+
+    snapshots = []
+    generations = []
+
+    class Client:
+        def __init__(self, transport):
+            pass
+
+        def authenticate_cached(self, *args):
+            pass
+
+        def identity(self):
+            return {"id": "backend-uuid", "name": "encoded-name"}
+
+        def reconcile_account(self, symbol):
+            snapshots.append(symbol)
+            return SimpleNamespace(positions=[{}], open_orders=[])
+
+        def user_events(self, **kwargs):
+            for generation in range(kwargs["max_reconnects"] + 1):
+                generations.append(generation)
+                yield UserStreamMessage("connected", generation, 1, True, "snapshot")
+                yield UserStreamMessage("disconnected", generation, 1, True, "idle")
+            raise SafetyError("Private stream reconnect budget exhausted")
+
+    monkeypatch.setattr("bond_perpdex_client.quickstart.BondPerpDexClient", Client)
+    monkeypatch.setattr(
+        "bond_perpdex_client.quickstart.WalletSigner.from_environment", lambda values: object()
+    )
+    monkeypatch.setattr(
+        "bond_perpdex_client.quickstart.load_ed25519_private_key", lambda path: object()
+    )
+    configured.values.update({"BOND_MODE": "stream", "BOND_MAX_RECONNECTS": str(reconnects)})
+    run(configured)
+    assert generations == list(range(reconnects + 1))
+    assert snapshots == ["BTCUSDCPERP"] * (1 + 2 * (reconnects + 1))
+
+
 def test_supervised_trade_wires_operator_values_and_risk_config(configured, monkeypatch):
     from decimal import Decimal
 
