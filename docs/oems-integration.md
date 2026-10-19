@@ -213,9 +213,12 @@ band (`executionMultiplierUp/Down`, e.g. 1.03/0.97). Otherwise it is rejected wi
 `prepare_marketable_order()` reads public `GET /fapi/v1/premiumIndex` `indexPrice`
 (failing if it is missing or non-positive) and uses `marketable_limit_price()`:
 BUY is floor-to-tick(min(worst, index × up)), SELL is ceil-to-tick(max(worst,
-index × down)). It uses the execution band, falls back to the resting band if
-the execution fields are absent, and uses a configurable band (default 300 bps)
-when no filter is advertised. `fair_price_band(market, crossing=False)` returns
+index × down)). It intersects the execution and resting bands. If the execution
+fields are absent, it uses a configurable band (default 300 bps), still limited
+by any advertised resting band. The resting band alone does not establish the
+execution limit; configure the fallback for the target release, and handle venue
+rejections if its limits or index price have changed. Without a filter, it uses
+the configured band. `fair_price_band(market, crossing=False)` returns
 the resting band for resting orders. A worst price beyond the far band edge is
 rejected locally.
 

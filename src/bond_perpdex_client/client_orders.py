@@ -29,7 +29,7 @@ from .signing import (
     encode_expiration,
 )
 
-# Conservative fallback when exchangeInfo advertises no PERCENT_PRICE filter.
+# Conservative fallback when exchangeInfo omits execution-band metadata.
 DEFAULT_FAIR_PRICE_BAND_BPS = 300
 # POST_ONLY rests; LIMIT/GTC may fill on entry; IOC/FOK may already be terminal.
 _IMMEDIATE = frozenset({"NEW", "PARTIALLY_FILLED", "FILLED", "EXPIRED", "CANCELED"})
@@ -48,19 +48,23 @@ def fair_price_band(
 
     A crossing (marketable) order uses the PERCENT_PRICE execution band, intersected
     with the resting band it must also satisfy; a resting order uses the resting band.
-    Without execution fields both use the resting band; without a filter, ``band_bps``.
+    Without execution fields, crossing orders use ``band_bps``, intersected with any
+    advertised resting band. A resting band alone does not describe the execution
+    limit. Without a filter, both order kinds use ``band_bps``.
     """
     resting, execution = market.resting_band, market.execution_band
-    if crossing and execution is not None:
-        if resting is None:
-            return execution
-        return PriceBand(max(resting.down, execution.down), min(resting.up, execution.up))
-    if resting is not None:
+    if not crossing and resting is not None:
         return resting
-    if type(band_bps) is not int or not 0 < band_bps < 10_000:
-        raise SafetyError("Fair-price band must be 1-9999 basis points")
-    fraction = Decimal(band_bps) / 10_000
-    return PriceBand(1 - fraction, 1 + fraction)
+    if crossing and execution is not None:
+        selected = execution
+    else:
+        if type(band_bps) is not int or not 0 < band_bps < 10_000:
+            raise SafetyError("Fair-price band must be 1-9999 basis points")
+        fraction = Decimal(band_bps) / 10_000
+        selected = PriceBand(1 - fraction, 1 + fraction)
+    if resting is None:
+        return selected
+    return PriceBand(max(resting.down, selected.down), min(resting.up, selected.up))
 
 
 def marketable_limit_price(

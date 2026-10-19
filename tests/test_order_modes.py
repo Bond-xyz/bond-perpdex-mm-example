@@ -189,13 +189,25 @@ def test_resting_orders_use_the_resting_band():
     assert fair_price_band(market) == PriceBand(Decimal("0.97"), Decimal("1.03"))
 
 
-def test_ioc_falls_back_to_the_resting_band_without_execution_fields():
+def test_ioc_without_execution_fields_keeps_the_configured_band_inside_resting():
     market = market_with(
         {"filterType": "PERCENT_PRICE", "multiplierUp": "1.05", "multiplierDown": "0.95"}
     )
     assert market.execution_band is None
-    assert marketable_limit_price(market, "BUY", INDEX, band_bps=100) == Decimal("68255.2")
-    assert marketable_limit_price(market, "SELL", INDEX, band_bps=100) == Decimal("61754.8")
+    assert marketable_limit_price(market, "BUY", INDEX, band_bps=100) == Decimal("65655.0")
+    assert marketable_limit_price(market, "SELL", INDEX, band_bps=100) == Decimal("64355.0")
+    assert marketable_limit_price(market, "BUY", INDEX) == Decimal("66955.1")
+    assert marketable_limit_price(market, "SELL", INDEX) == Decimal("63054.9")
+
+
+def test_ioc_fallback_cannot_exceed_a_narrower_advertised_resting_band():
+    market = market_with(
+        {"filterType": "PERCENT_PRICE", "multiplierUp": "1.01", "multiplierDown": "0.99"}
+    )
+    assert fair_price_band(market) == PriceBand(Decimal("0.99"), Decimal("1.01"))
+    for band in (0, 10_000, 1.5):
+        with pytest.raises(SafetyError, match="basis points"):
+            fair_price_band(market, band)
 
 
 def test_no_filter_uses_the_configured_band_for_both_order_kinds(connected):
