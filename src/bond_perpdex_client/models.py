@@ -12,6 +12,8 @@ HTTP_URL = "https://perpdex-testnet.bond.xyz"
 WS_URL = "wss://perpdex-testnet.bond.xyz/ws"
 WS_API_URL = "wss://perpdex-testnet.bond.xyz/ws-fapi/v1"
 CHAIN_ID = 16602
+# Public Galileo EVM RPC, used for chain identity and Endpoint.getTime() unless overridden.
+GALILEO_RPC_URL = "https://evmrpc-testnet.0g.ai"
 SUPPORTED_SYMBOLS = frozenset({"BTCUSDCPERP", "ETHUSDCPERP", "SOLUSDCPERP", "0GUSDCPERP"})
 
 
@@ -78,6 +80,36 @@ class TestnetConfig:
 
 
 @dataclass(frozen=True)
+class PriceBand:
+    """Admissible price multipliers around the index price, e.g. 0.97 and 1.03."""
+
+    down: Decimal
+    up: Decimal
+
+    @classmethod
+    def parse(cls, down: object, up: object) -> "PriceBand":
+        band = cls(decimal(str(down)), decimal(str(up)))
+        if not 0 < band.down < 1 < band.up:
+            raise SafetyError("Invalid fair-price band multipliers")
+        return band
+
+
+def _fair_price_bands(filters: Json) -> tuple[PriceBand | None, PriceBand | None]:
+    """Read (bid, ask) bands from PERCENT_PRICE_BY_SIDE, else PERCENT_PRICE, if advertised."""
+    by_side = filters.get("PERCENT_PRICE_BY_SIDE")
+    if by_side is not None:
+        return (
+            PriceBand.parse(by_side["bidMultiplierDown"], by_side["bidMultiplierUp"]),
+            PriceBand.parse(by_side["askMultiplierDown"], by_side["askMultiplierUp"]),
+        )
+    both = filters.get("PERCENT_PRICE")
+    if both is not None:
+        band = PriceBand.parse(both["multiplierDown"], both["multiplierUp"])
+        return band, band
+    return None, None
+
+
+@dataclass(frozen=True)
 class Market:
     symbol: str
     product_id: int
@@ -90,6 +122,8 @@ class Market:
     max_price: Decimal
     min_notional: Decimal
     base_precision: int = 8
+    bid_band: PriceBand | None = None
+    ask_band: PriceBand | None = None
 
     @classmethod
     def from_exchange_info(cls, response: Json, symbol: str, registry: SigningRegistry) -> "Market":
@@ -108,6 +142,7 @@ class Market:
             filters[key] for key in ("PRICE_FILTER", "LOT_SIZE", "MIN_NOTIONAL")
         )
         product_id, book = registry.markets[symbol]
+        bid_band, ask_band = _fair_price_bands(filters)
         market = cls(
             symbol,
             product_id,
@@ -119,6 +154,8 @@ class Market:
             decimal(price["minPrice"]),
             decimal(price["maxPrice"]),
             decimal(str(notional["notional"])),
+            bid_band=bid_band,
+            ask_band=ask_band,
         )
         if min(market.tick, market.step, market.min_quantity, market.min_notional) <= 0:
             raise SafetyError("Invalid market filters")

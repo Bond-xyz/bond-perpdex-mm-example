@@ -98,8 +98,10 @@ rotation must first reconcile outstanding effects.
 using discovery-based trade mode. Older servers omit these fields and are
 rejected. Existing private account reads do not require the extension.
 
-Read the discovered Endpoint's `getTime()` through a verified chain-16602 RPC
-before signing (`read_endpoint_time`). Expiry also accounts for client wall time.
+Read the discovered Endpoint's `getTime()` through a chain-16602 RPC before
+signing (`read_endpoint_time`). The client defaults to the public Galileo RPC
+`https://evmrpc-testnet.0g.ai`; set `BOND_GALILEO_RPC_URL` or pass a URL to use
+your own. Expiry also accounts for client wall time.
 A VirtualBook may be an EIP-712 domain address without runtime code; do not replace
 it with another contract merely because it has bytecode.
 
@@ -185,6 +187,40 @@ Sockets independently expire after **24 hours** even when a session has weeks
 remaining. Reconnect/resubscribe before that deadline, and reconcile REST state.
 The bounded stream performs at most three reconnects and does not renew SIWE
 silently. A real OEMS still needs durable command reconciliation and a scheduler.
+
+## Signed order modes, prices and limits
+
+These venue admission rules apply to every signed order. The offline fixture and
+mocks check the encoding; this repository has not verified fills against them.
+
+**Mode bits.** Signed `expiration` is a uint64: bits 0–57 are expiry Unix seconds,
+bits 58–60 are reserved and must be zero, bit 61 is reduce-only (valid only with
+IOC or FOK) and bits 62–63 select the mode: `0` LIMIT/GTC, `1` LIMIT/IOC, `2`
+LIMIT/FOK, `3` POST_ONLY/GTC. The request `type`, `timeInForce` and `reduceOnly`
+must match these bits or the order is rejected. `encode_expiration()` builds and
+validates the value; `prepare_order(..., order_type=, time_in_force=, reduce_only=)`
+signs it and sends `reduceOnly=true` only when set.
+
+**No signed MARKET.** Send LIMIT/IOC at your worst acceptable price instead. The
+top-level `price` is required, must be on the tick grid and must equal
+`priceX18 / 1e18` exactly. Prices outside a fair-price band around the index price
+are rejected with `PRICE_OUTSIDE_FAIR_PRICE_BAND`. `prepare_marketable_order()`
+reads public `GET /fapi/v1/premiumIndex` `indexPrice` and uses
+`marketable_limit_price()`: BUY is floor-to-tick(min(worst, index × up)), SELL is
+ceil-to-tick(max(worst, index × down)). It uses an exchangeInfo `PERCENT_PRICE` or
+`PERCENT_PRICE_BY_SIDE` filter when advertised, otherwise a configurable band
+(default 300 bps). A worst price beyond the far band edge is rejected locally.
+
+**Expiry ends a resting order.** Amending keeps the original expiry; extend an
+order by cancelling it and placing a new one. Prefer hours rather than months.
+Expiry must be later than both `Endpoint.getTime()` and the venue server clock:
+use `max(getTime(), wall time) + TTL`. This client signs a 60-second TTL.
+
+**Position cap.** The exchangeInfo `MAX_POSITION` filter's `maxPosition` is in
+base units (`"1"` = 1 BTC); `qtyExponent` does not apply. Admission checks it per
+subaccount per symbol against position + same-side open orders + the new order.
+Reduce-only orders are exempt. A breach is rejected with `POSITION_CAP_EXCEEDED`.
+The client's own `BOND_MAX_POSITION` worst-case bound is a separate local check.
 
 ## Verification
 

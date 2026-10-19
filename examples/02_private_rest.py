@@ -28,15 +28,15 @@ def arguments() -> argparse.Namespace:
         type=Path,
         help="Optional signing-context pin checked against public exchangeInfo",
     )
-    parser.add_argument("--rpc-url", help="Verified HTTPS Galileo RPC for Endpoint time")
+    parser.add_argument(
+        "--rpc-url", help="HTTPS Galileo RPC for Endpoint time; defaults to the public RPC"
+    )
     parser.add_argument("--side", choices=["BUY", "SELL"])
     parser.add_argument("--price", type=Decimal)
     parser.add_argument("--quantity", type=Decimal)
     args = parser.parse_args()
-    if args.place and any(
-        value is None for value in (args.side, args.price, args.quantity, args.rpc_url)
-    ):
-        parser.error("--place requires --side, --price, --quantity, and --rpc-url")
+    if args.place and any(value is None for value in (args.side, args.price, args.quantity)):
+        parser.error("--place requires --side, --price and --quantity")
     if not args.place and any(
         value is not None for value in (args.side, args.price, args.quantity)
     ):

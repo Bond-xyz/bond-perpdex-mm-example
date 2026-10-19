@@ -5,11 +5,16 @@ from urllib.parse import urlsplit
 import httpx
 from eth_utils import keccak
 
-from .models import CHAIN_ID, SafetyError
+from .models import CHAIN_ID, GALILEO_RPC_URL, SafetyError
 from .registry import SigningRegistry
 
 
-def read_endpoint_time(rpc_url: str, registry: SigningRegistry) -> int:
+def read_endpoint_time(rpc_url: str | None, registry: SigningRegistry) -> int:
+    """Read Endpoint.getTime() after checking chain 16602.
+
+    An empty or ``None`` URL selects the public Galileo RPC; pass your own to override.
+    """
+    rpc_url = rpc_url or GALILEO_RPC_URL
     parsed = urlsplit(rpc_url)
     if (
         parsed.scheme != "https"

@@ -22,7 +22,7 @@ from bond_perpdex_client import (
 )
 from bond_perpdex_client.models import PreparedRequest
 from bond_perpdex_client.offline import NOW_MS, OFFLINE_REGISTRY, OfflineVenue, demo_identity
-from bond_perpdex_client.signing import canonical_form
+from bond_perpdex_client.signing import canonical_form, signed_form
 
 
 @pytest.fixture
@@ -417,3 +417,38 @@ def test_client_clock_overflow_fails_before_signing(live_mock):
     client.clock_ms = lambda: 2**58 * 1000
     with pytest.raises(SafetyError, match="Client clock"):
         prepare(live_mock)
+
+
+def test_live_marketable_ioc_reads_premium_index_and_accepts_a_terminal_ack(live_mock):
+    client, venue, wallet, market, wire = live_mock
+    intent = client.prepare_marketable_order(
+        wallet,
+        market,
+        "BUY",
+        Decimal("0.002"),
+        worst_price=Decimal("65100"),
+        endpoint_time=NOW_MS // 1000,
+    )
+    assert any(request.url.path == "/fapi/v1/premiumIndex" for request in wire)
+    result = client.submit_order(intent)
+    assert result["status"] == "EXPIRED" and not client.halted
+    assert client.reconcile_account(market.symbol).open_orders == []
+
+
+def test_live_preflight_rejects_request_mode_that_differs_from_signed_bits(live_mock):
+    client, venue, wallet, market, _ = live_mock
+    intent = client.prepare_marketable_order(
+        wallet,
+        market,
+        "SELL",
+        Decimal("0.002"),
+        reduce_only=True,
+        endpoint_time=NOW_MS // 1000,
+    )
+    fields = {key: values[0] for key, values in parse_qs(intent.request.body).items()}
+    del fields["reduceOnly"], fields["signature"]
+    _, key = demo_identity()
+    changed = replace(intent.request, body=signed_form(fields, key))
+    with pytest.raises(SafetyError, match="signed bits"):
+        client.submit_order(replace(intent, request=changed))
+    assert not venue.orders and not client.halted

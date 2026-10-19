@@ -3,6 +3,7 @@
 import json
 import secrets
 import uuid
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, localcontext
 from urllib.parse import parse_qs
 
 from .models import (
@@ -10,14 +11,87 @@ from .models import (
     Json,
     Market,
     OrderIntent,
+    PriceBand,
     Quote,
     SafetyError,
+    Side,
     UnknownOutcome,
     decimal,
     text,
     units,
 )
-from .signing import WalletSigner, compact
+from .signing import (
+    OrderType,
+    TimeInForce,
+    WalletSigner,
+    compact,
+    decode_expiration,
+    encode_expiration,
+)
+
+# Conservative fallback until exchangeInfo advertises PERCENT_PRICE(_BY_SIDE).
+DEFAULT_FAIR_PRICE_BAND_BPS = 300
+# POST_ONLY rests; LIMIT/GTC may fill on entry; IOC/FOK may already be terminal.
+_IMMEDIATE = frozenset({"NEW", "PARTIALLY_FILLED", "FILLED", "EXPIRED", "CANCELED"})
+ACKNOWLEDGED_STATUSES = {
+    ("POST_ONLY", "GTC"): frozenset({"NEW"}),
+    ("LIMIT", "GTC"): frozenset({"NEW", "PARTIALLY_FILLED", "FILLED"}),
+    ("LIMIT", "IOC"): _IMMEDIATE,
+    ("LIMIT", "FOK"): _IMMEDIATE,
+}
+
+
+def fair_price_band(
+    market: Market, side: Side, band_bps: int = DEFAULT_FAIR_PRICE_BAND_BPS
+) -> PriceBand:
+    """Return the advertised exchangeInfo band for ``side``, else ``index * (1 +/- bps)``."""
+    advertised = market.bid_band if side == "BUY" else market.ask_band
+    if advertised is not None:
+        return advertised
+    if type(band_bps) is not int or not 0 < band_bps < 10_000:
+        raise SafetyError("Fair-price band must be 1-9999 basis points")
+    fraction = Decimal(band_bps) / 10_000
+    return PriceBand(1 - fraction, 1 + fraction)
+
+
+def marketable_limit_price(
+    market: Market,
+    side: Side,
+    index_price: Decimal,
+    *,
+    worst_price: Decimal | None = None,
+    band_bps: int = DEFAULT_FAIR_PRICE_BAND_BPS,
+) -> Decimal:
+    """Tick-aligned LIMIT/IOC price bounded by ``worst_price`` and the fair-price band.
+
+    BUY: floor-to-tick(min(worst, index * up)); SELL: ceil-to-tick(max(worst, index * down)).
+    Without ``worst_price`` the band edge is the slippage bound. A worst price on the
+    far side of the band cannot be admitted and is rejected rather than moved.
+    """
+    if side not in {"BUY", "SELL"}:
+        raise SafetyError("Side must be BUY or SELL")
+    if not isinstance(index_price, Decimal) or not index_price.is_finite() or index_price <= 0:
+        raise SafetyError("Index price must be a positive Decimal")
+    if worst_price is not None and (
+        not isinstance(worst_price, Decimal) or not worst_price.is_finite() or worst_price <= 0
+    ):
+        raise SafetyError("Worst acceptable price must be a positive Decimal")
+    band = fair_price_band(market, side, band_bps)
+    with localcontext() as ctx:
+        ctx.prec = 80
+        lower, upper = index_price * band.down, index_price * band.up
+        if side == "BUY":
+            bound = upper if worst_price is None else min(worst_price, upper)
+            price = (bound / market.tick).to_integral_value(ROUND_FLOOR) * market.tick
+        else:
+            bound = lower if worst_price is None else max(worst_price, lower)
+            price = (bound / market.tick).to_integral_value(ROUND_CEILING) * market.tick
+    if not lower <= price <= upper or price <= 0:
+        raise SafetyError(
+            "Worst acceptable price is outside the fair-price band "
+            "(the venue would reject PRICE_OUTSIDE_FAIR_PRICE_BAND)"
+        )
+    return price
 
 
 class OrderCommands:
@@ -33,7 +107,15 @@ class OrderCommands:
         endpoint_time: int | None = None,
         nonce: int | None = None,
         client_order_id: str | None = None,
+        order_type: OrderType = "POST_ONLY",
+        time_in_force: TimeInForce = "GTC",
+        reduce_only: bool = False,
     ) -> OrderIntent:
+        """Sign one order. The default POST_ONLY/GTC mode matches earlier releases.
+
+        LIMIT/IOC and LIMIT/FOK may be reduce-only. Signed MARKET is unsupported; use
+        ``prepare_marketable_order`` for a band-bounded LIMIT/IOC instead.
+        """
         with self._lock:
             self._permission(mutation=True)
             if self.halted:
@@ -66,6 +148,7 @@ class OrderCommands:
             if not 0 < ingress_time < 2**58 - 60:
                 raise SafetyError("Client clock must fit the signed expiry")
             expires_at = max(endpoint_time, ingress_time) + 60
+            encode_expiration(order_type, time_in_force, reduce_only, expires_at)
             self._nonces.add(nonce)
             envelope = wallet.order(
                 market,
@@ -75,24 +158,65 @@ class OrderCommands:
                 subaccount,
                 expires_at,
                 nonce,
+                order_type=order_type,
+                time_in_force=time_in_force,
+                reduce_only=reduce_only,
             )
             client_id = client_order_id or str(uuid.uuid4())
             uuid.UUID(client_id)
-            request = self._private(
-                "POST",
-                "/fapi/v1/order",
-                {
-                    "symbol": market.symbol,
-                    "side": quote.side,
-                    "type": "POST_ONLY",
-                    "timeInForce": "GTC",
-                    "price": text(quote.price),
-                    "quantity": text(quote.quantity),
-                    "newClientOrderId": client_id,
-                    "signedOrder": compact(envelope),
-                },
-            )
+            fields = {
+                "symbol": market.symbol,
+                "side": quote.side,
+                "type": order_type,
+                "timeInForce": time_in_force,
+                # Top-level price must equal signed priceX18 / 1e18 exactly.
+                "price": text(quote.price),
+                "quantity": text(quote.quantity),
+                "newClientOrderId": client_id,
+                "signedOrder": compact(envelope),
+            }
+            if reduce_only:
+                fields["reduceOnly"] = "true"
+            request = self._private("POST", "/fapi/v1/order", fields)
             return OrderIntent(client_id, envelope["hashes"]["digest"], request)
+
+    def prepare_marketable_order(
+        self,
+        wallet: WalletSigner,
+        market: Market,
+        side: Side,
+        quantity: Decimal,
+        *,
+        worst_price: Decimal | None = None,
+        reduce_only: bool = False,
+        index_price: Decimal | None = None,
+        band_bps: int = DEFAULT_FAIR_PRICE_BAND_BPS,
+        subaccount: str | None = None,
+        endpoint_time: int | None = None,
+        nonce: int | None = None,
+        client_order_id: str | None = None,
+    ) -> OrderIntent:
+        """Sign a LIMIT/IOC at a band-clamped worst acceptable price; it does not submit.
+
+        Reads public ``premiumIndex`` for ``indexPrice`` unless ``index_price`` is given.
+        """
+        if index_price is None:
+            index_price = decimal(str(self.premium_index(market.symbol)["indexPrice"]))
+        price = marketable_limit_price(
+            market, side, index_price, worst_price=worst_price, band_bps=band_bps
+        )
+        return self.prepare_order(
+            wallet,
+            market,
+            Quote(side, price, quantity),
+            subaccount=subaccount,
+            endpoint_time=endpoint_time,
+            nonce=nonce,
+            client_order_id=client_order_id,
+            order_type="LIMIT",
+            time_in_force="IOC",
+            reduce_only=reduce_only,
+        )
 
     def submit_offline(self, intent: OrderIntent) -> Json:
         self._offline()
@@ -107,8 +231,6 @@ class OrderCommands:
         if intent.request.headers.get("x-api-key") != session.api_key:
             raise SafetyError("Prepared order belongs to a different session")
         fields = {key: values[0] for key, values in parse_qs(intent.request.body).items()}
-        if fields.get("type") != "POST_ONLY" or fields.get("timeInForce") != "GTC":
-            raise SafetyError("Only POST_ONLY/GTC placement is supported")
         if (
             self.signing_registry is None
             or fields.get("symbol") not in self.signing_registry.markets
@@ -116,6 +238,15 @@ class OrderCommands:
             raise SafetyError("Load the verified signing registry for this market")
         product_id, virtual_book = self.signing_registry.markets[fields["symbol"]]
         envelope = json.loads(fields["signedOrder"])
+        order_type, time_in_force, reduce_only, _ = decode_expiration(
+            int(envelope["order"]["expiration"])
+        )
+        if (fields.get("type"), fields.get("timeInForce"), fields.get("reduceOnly", "false")) != (
+            order_type,
+            time_in_force,
+            "true" if reduce_only else "false",
+        ):
+            raise SafetyError("Request type, timeInForce or reduceOnly differs from signed bits")
         if (
             envelope["domain"]
             != {
@@ -183,15 +314,19 @@ class OrderCommands:
                 self._live_preflight(intent)
             self._attempted.add(intent.client_order_id)
             self.uncertain_commands[intent.client_order_id] = intent.request
+            body = parse_qs(intent.request.body)
+            mode = (body.get("type", [""])[0], body.get("timeInForce", [""])[0])
+            accepted = ACKNOWLEDGED_STATUSES.get(mode, frozenset())
             try:
                 result = self._object(self._send(intent.request))
                 uuid.UUID(result["orderId"])
                 if (
                     result.get("clientOrderId") != intent.client_order_id
-                    or result.get("status") != "NEW"
+                    or result.get("status") not in accepted
                 ):
                     raise SafetyError("Unexpected order acknowledgement requires reconciliation")
-                self._open[intent.client_order_id] = result["orderId"]
+                if result["status"] in {"NEW", "PARTIALLY_FILLED"}:
+                    self._open[intent.client_order_id] = result["orderId"]
                 del self.uncertain_commands[intent.client_order_id]
                 return result
             except Exception:

@@ -22,8 +22,8 @@ make private
 ```
 
 Private modes require your wallet credentials. Live trade mode additionally needs
-funding, public signing discovery, a verified RPC, an operator-selected price and the explicit
-`--allow-live-orders` flag. The [configuration guide](docs/configuration.md)
+funding, public signing discovery, an operator-selected price and the explicit
+`--allow-live-orders` flag. Endpoint time defaults to the public Galileo RPC. The [configuration guide](docs/configuration.md)
 explains every variable, default, consuming module, mode and setup step.
 
 ## Individual examples
@@ -107,22 +107,30 @@ checked against discovery. They are not a fallback when discovery is unavailable
 During rollout, a server without the extension cannot run this version's trade
 mode; private reads and offline mode remain available.
 
-Only after funding the chosen subaccount and setting your price, quantity,
-and RPC in the configured environment, run:
+Only after funding the chosen subaccount and setting your price and quantity
+in the configured environment, run:
 
 ```sh
 make trade ARGS=--allow-live-orders
 ```
 
 `make trade` alone rejects execution. For the individual REST example, pass
-`--place`, side, price, quantity and RPC through `ARGS`; use
+`--place`, side, price and quantity (optionally `--rpc-url`) through `ARGS`; use
 `make rest-example ARGS=--help` for its required account and order flags.
 
 Live order preparation checks Galileo RPC chain identity and reads the verified
-Endpoint's `getTime()` for signed expiry. Expiry is 60 seconds after the later
-of Endpoint time and the client clock: ingress also checks wall time, while
-Endpoint time can lag between settlement batches. The client validates live precision,
-tick/step/notional filters and its configured risk bounds. Orders can execute.
+Endpoint's `getTime()` for signed expiry. The RPC defaults to the public
+`https://evmrpc-testnet.0g.ai` (chain 16602); `BOND_GALILEO_RPC_URL` overrides it.
+Expiry is 60 seconds after the later of Endpoint time and the client clock:
+ingress also checks wall time, while Endpoint time can lag between settlement
+batches. Expiry ends a resting order and amendment keeps it; extend by cancel and
+new order. The client validates live precision, tick/step/notional filters and its
+configured risk bounds. Orders can execute.
+
+Signed orders encode LIMIT/GTC, LIMIT/IOC, LIMIT/FOK or POST_ONLY/GTC, plus
+IOC/FOK reduce-only, in `expiration`; signed MARKET is unsupported. Use
+`prepare_marketable_order()` for a band-bounded LIMIT/IOC. See
+[order modes, price band and position cap](docs/oems-integration.md#signed-order-modes-prices-and-limits).
 No deposits are implemented; the website cannot select a named account to fund.
 See [funding and all six integration answers](docs/oems-integration.md).
 

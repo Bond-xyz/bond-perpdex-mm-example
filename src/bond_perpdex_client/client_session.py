@@ -122,6 +122,18 @@ class SessionClient:
         query = canonical_form({"symbol": symbol, "limit": 20})
         return self._object(self._send(PreparedRequest("GET", "/fapi/v1/depth?" + query, "")))
 
+    def premium_index(self, symbol: str) -> Json:
+        """Public mark/index price read; the fair-price band is centred on ``indexPrice``."""
+        if symbol not in SUPPORTED_SYMBOLS:
+            raise SafetyError("Unsupported testnet market")
+        query = canonical_form({"symbol": symbol})
+        result = self._object(
+            self._send(PreparedRequest("GET", "/fapi/v1/premiumIndex?" + query, ""))
+        )
+        if result.get("symbol") != symbol:
+            raise SafetyError("premiumIndex returned a different market")
+        return result
+
     def authenticate_offline(
         self,
         wallet: WalletSigner,

@@ -14,7 +14,14 @@ from eth_account.messages import encode_defunct
 
 from .models import Json, Market, PreparedRequest, SafetyError, decimal, units
 from .registry import SigningRegistry
-from .signing import WalletSigner, canonical_form, order_hashes, subaccount_sender, typed_message
+from .signing import (
+    WalletSigner,
+    canonical_form,
+    decode_expiration,
+    order_hashes,
+    subaccount_sender,
+    typed_message,
+)
 
 # Synthetic signing domains: these are never live defaults.
 OFFLINE_REGISTRY = SigningRegistry.from_dict(
@@ -74,6 +81,14 @@ EXCHANGE_INFO["symbols"] = [
     for symbol, (product, book) in OFFLINE_REGISTRY.markets.items()
 ]
 SNAPSHOT = {"lastUpdateId": 10, "bids": [["65000", "0.1"]], "asks": [["65010", "0.1"]]}
+PREMIUM_INDEX = {
+    "symbol": "BTCUSDCPERP",
+    "markPrice": "65005",
+    "indexPrice": "65005",
+    "lastFundingRate": "0",
+    "nextFundingTime": NOW_MS + 3_600_000,
+    "time": NOW_MS,
+}
 DEPTH_FRAME = {
     "stream": "btcusdcperp@depth@100ms",
     "data": {
@@ -123,6 +138,10 @@ class OfflineVenue:
             if parse_qs(parsed.query) != {"limit": ["20"], "symbol": ["BTCUSDCPERP"]}:
                 raise SafetyError("Offline depth fixture supports only BTCUSDCPERP, limit 20")
             return copy.deepcopy(SNAPSHOT)
+        if request.method == "GET" and parsed.path == "/fapi/v1/premiumIndex":
+            if parse_qs(parsed.query) != {"symbol": ["BTCUSDCPERP"]}:
+                raise SafetyError("Offline premiumIndex fixture supports only BTCUSDCPERP")
+            return copy.deepcopy(PREMIUM_INDEX)
         if request.method == "GET" and parsed.path == "/auth/nonce":
             self._nonce_issued = True
             return {"nonce": "offlineNonce0001"}
@@ -266,11 +285,17 @@ class OfflineVenue:
             raise SafetyError("Wrong EIP-712 domain")
         if envelope["schemaVersion"] != 1 or envelope["productId"] != market.product_id:
             raise SafetyError("Wrong envelope schema or product")
-        if fields["type"] != "POST_ONLY" or fields["timeInForce"] != "GTC":
-            raise SafetyError("Only POST_ONLY/GTC in this fixture")
-        expiration = int(order["expiration"])
-        if expiration >> 58 != 48 or (expiration & (2**58 - 1)) <= self.now_ms // 1000:
-            raise SafetyError("Wrong expiration flags or expired order")
+        order_type, time_in_force, reduce_only, expires_at = decode_expiration(
+            int(order["expiration"])
+        )
+        if (fields["type"], fields["timeInForce"], fields.get("reduceOnly", "false")) != (
+            order_type,
+            time_in_force,
+            "true" if reduce_only else "false",
+        ):
+            raise SafetyError("Request type, timeInForce or reduceOnly differs from signed bits")
+        if expires_at <= self.now_ms // 1000:
+            raise SafetyError("Expired order")
         if order["nonce"] in self.nonces:
             raise SafetyError("Reused signed order nonce")
         if order["sender"] != subaccount_sender(self.owner, self.subaccount):
@@ -296,10 +321,12 @@ class OfflineVenue:
             "price": fields["price"],
             "origQty": fields["quantity"],
             "executedQty": "0",
-            "status": "NEW",
+            # No matching: an immediate-or-kill order finds no fixture liquidity.
+            "status": "EXPIRED" if time_in_force in {"IOC", "FOK"} else "NEW",
             "side": fields["side"],
-            "type": "POST_ONLY",
-            "timeInForce": "GTC",
+            "type": order_type,
+            "timeInForce": time_in_force,
+            "reduceOnly": reduce_only,
             "transactTime": self.now_ms,
         }
         self.orders[order_id] = result
