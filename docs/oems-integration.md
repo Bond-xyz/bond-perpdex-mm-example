@@ -203,13 +203,21 @@ signs it and sends `reduceOnly=true` only when set.
 
 **No signed MARKET.** Send LIMIT/IOC at your worst acceptable price instead. The
 top-level `price` is required, must be on the tick grid and must equal
-`priceX18 / 1e18` exactly. Prices outside a fair-price band around the index price
-are rejected with `PRICE_OUTSIDE_FAIR_PRICE_BAND`. `prepare_marketable_order()`
-reads public `GET /fapi/v1/premiumIndex` `indexPrice` and uses
-`marketable_limit_price()`: BUY is floor-to-tick(min(worst, index × up)), SELL is
-ceil-to-tick(max(worst, index × down)). It uses an exchangeInfo `PERCENT_PRICE` or
-`PERCENT_PRICE_BY_SIDE` filter when advertised, otherwise a configurable band
-(default 300 bps). A worst price beyond the far band edge is rejected locally.
+`priceX18 / 1e18` exactly. The exchangeInfo `PERCENT_PRICE` filter
+(`referencePrice: "INDEX"`) defines two inclusive bands around the index price:
+every LIMIT order must be inside the resting band (`multiplierUp/Down`, e.g.
+1.05/0.95), and an order that crosses the book must also be inside the execution
+band (`executionMultiplierUp/Down`, e.g. 1.03/0.97). Otherwise it is rejected with
+`PRICE_OUTSIDE_FAIR_PRICE_BAND`.
+
+`prepare_marketable_order()` reads public `GET /fapi/v1/premiumIndex` `indexPrice`
+(failing if it is missing or non-positive) and uses `marketable_limit_price()`:
+BUY is floor-to-tick(min(worst, index × up)), SELL is ceil-to-tick(max(worst,
+index × down)). It uses the execution band, falls back to the resting band if
+the execution fields are absent, and uses a configurable band (default 300 bps)
+when no filter is advertised. `fair_price_band(market, crossing=False)` returns
+the resting band for resting orders. A worst price beyond the far band edge is
+rejected locally.
 
 **Expiry ends a resting order.** Amending keeps the original expiry; extend an
 order by cancelling it and placing a new one. Prefer hours rather than months.

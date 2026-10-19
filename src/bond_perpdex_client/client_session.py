@@ -5,6 +5,7 @@ import time
 import uuid
 from collections.abc import Callable
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -18,6 +19,7 @@ from .models import (
     SafetyError,
     TestnetConfig,
     UnknownOutcome,
+    decimal,
 )
 from .registry import SigningRegistry
 from .signing import WalletSigner, canonical_form, compact, signed_form
@@ -133,6 +135,17 @@ class SessionClient:
         if result.get("symbol") != symbol:
             raise SafetyError("premiumIndex returned a different market")
         return result
+
+    def index_price(self, symbol: str) -> Decimal:
+        """Return premiumIndex ``indexPrice``, the centre of the fair-price band."""
+        raw = self.premium_index(symbol).get("indexPrice")
+        try:
+            price = decimal(raw if isinstance(raw, str) else str(raw))
+        except (SafetyError, ArithmeticError, ValueError):
+            price = None
+        if raw is None or price is None or price <= 0:
+            raise SafetyError(f"premiumIndex for {symbol} has no positive indexPrice")
+        return price
 
     def authenticate_offline(
         self,

@@ -128,7 +128,7 @@ ack = client.submit_order(intent)  # IOC/FOK may acknowledge FILLED or EXPIRED
 ```
 
 It reads `GET /fapi/v1/premiumIndex` and clamps the tick-aligned price inside the
-fair-price band; see [order modes and limits](oems-integration.md#signed-order-modes-prices-and-limits).
+`PERCENT_PRICE` execution band around `indexPrice`; see [order modes and limits](oems-integration.md#signed-order-modes-prices-and-limits).
 
 An ordinary single-cancel response **can omit `status`**. The sample client
 returns that response unchanged and records the UUID in
@@ -300,7 +300,7 @@ make offline
 
 Tests forbid sockets and DNS at the fixture boundary. They exercise source
 EIP-712 hashes/recovery and exact form bytes, both signature layers, every signed
-order mode and reduce-only flag, fair-price band clamping, decimal precision, nonce bounds/reuse, testnet and credential guards,
+order mode and reduce-only flag, execution/resting price-band clamping, decimal precision, nonce bounds/reuse, testnet and credential guards,
 HTTP/WS transport mocks, redirects/errors without retries, depth freshness/gaps,
 inventory limits, lost submit/cancel acknowledgements, session expiry, and cleanup.
 HTTP authentication/account/place/cancel-one and WebSocket subscription/cancel-all

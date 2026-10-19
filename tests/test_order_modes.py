@@ -10,11 +10,13 @@ import pytest
 from bond_perpdex_client import (
     GALILEO_RPC_URL,
     Market,
+    PriceBand,
     Quote,
     SafetyError,
     UnknownOutcome,
     decode_expiration,
     encode_expiration,
+    fair_price_band,
     marketable_limit_price,
     read_endpoint_time,
 )
@@ -24,6 +26,7 @@ from bond_perpdex_client.offline import (
     EXCHANGE_INFO,
     NOW_MS,
     OFFLINE_REGISTRY,
+    PREMIUM_INDEX,
     demo_identity,
 )
 from bond_perpdex_client.setup import ensure_environment
@@ -152,26 +155,80 @@ def test_configured_band_and_its_bounds(connected):
             marketable_limit_price(market, "BUY", bad)
 
 
-def test_advertised_percent_price_filter_overrides_the_configured_band():
+# The exact BTC filter advertised by exchangeInfo.
+BTC_PERCENT_PRICE = {
+    "filterType": "PERCENT_PRICE",
+    "multiplierUp": "1.05",
+    "multiplierDown": "0.95",
+    "multiplierDecimal": "4",
+    "referencePrice": "INDEX",
+    "restingDeviationBps": 500,
+    "executionMultiplierUp": "1.03",
+    "executionMultiplierDown": "0.97",
+    "executionDeviationBps": 300,
+}
+
+
+def test_ioc_uses_the_advertised_execution_band_over_resting_and_configured_bands():
+    market = market_with(BTC_PERCENT_PRICE)
+    assert market.resting_band == PriceBand(Decimal("0.95"), Decimal("1.05"))
+    assert market.execution_band == PriceBand(Decimal("0.97"), Decimal("1.03"))
+    # The configured 100 bps is ignored when the venue advertises its band.
+    assert marketable_limit_price(market, "BUY", INDEX, band_bps=100) == Decimal("66955.1")
+    assert marketable_limit_price(market, "SELL", INDEX, band_bps=100) == Decimal("63054.9")
+    # Inclusive edges: an exactly on-tick edge is admitted.
+    assert marketable_limit_price(market, "BUY", Decimal("100")) == Decimal("103.0")
+    assert marketable_limit_price(market, "SELL", Decimal("100")) == Decimal("97.0")
+    with pytest.raises(SafetyError, match="PRICE_OUTSIDE_FAIR_PRICE_BAND"):
+        marketable_limit_price(market, "BUY", INDEX, worst_price=Decimal("63054.8"))
+
+
+def test_resting_orders_use_the_resting_band():
+    market = market_with(BTC_PERCENT_PRICE)
+    assert fair_price_band(market, crossing=False) == PriceBand(Decimal("0.95"), Decimal("1.05"))
+    assert fair_price_band(market) == PriceBand(Decimal("0.97"), Decimal("1.03"))
+
+
+def test_ioc_falls_back_to_the_resting_band_without_execution_fields():
     market = market_with(
-        {"filterType": "PERCENT_PRICE", "multiplierUp": "1.0100", "multiplierDown": "0.9900"}
+        {"filterType": "PERCENT_PRICE", "multiplierUp": "1.05", "multiplierDown": "0.95"}
     )
-    assert marketable_limit_price(market, "BUY", INDEX, band_bps=300) == Decimal("65655.0")
-    assert marketable_limit_price(market, "SELL", INDEX, band_bps=300) == Decimal("64355.0")
+    assert market.execution_band is None
+    assert marketable_limit_price(market, "BUY", INDEX, band_bps=100) == Decimal("68255.2")
+    assert marketable_limit_price(market, "SELL", INDEX, band_bps=100) == Decimal("61754.8")
 
 
-def test_advertised_percent_price_by_side_uses_the_order_side():
+def test_no_filter_uses_the_configured_band_for_both_order_kinds(connected):
+    market = connected[3]
+    assert market.resting_band is None and market.execution_band is None
+    band = PriceBand(Decimal("0.975"), Decimal("1.025"))
+    assert fair_price_band(market, 250) == fair_price_band(market, 250, crossing=False) == band
+
+
+def test_execution_band_is_intersected_with_a_narrower_resting_band():
     market = market_with(
         {
-            "filterType": "PERCENT_PRICE_BY_SIDE",
-            "bidMultiplierUp": "1.02",
-            "bidMultiplierDown": "0.5",
-            "askMultiplierUp": "2",
-            "askMultiplierDown": "0.99",
+            **BTC_PERCENT_PRICE,
+            "multiplierUp": "1.02",
+            "executionMultiplierDown": "0.90",
         }
     )
-    assert marketable_limit_price(market, "BUY", INDEX) == Decimal("66305.1")
-    assert marketable_limit_price(market, "SELL", INDEX) == Decimal("64355.0")
+    assert fair_price_band(market) == PriceBand(Decimal("0.95"), Decimal("1.02"))
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"referencePrice": "MARK"},
+        {"executionMultiplierUp": None},
+        {"executionMultiplierDown": "1.01"},
+    ],
+)
+def test_unsupported_or_partial_percent_price_fails_market_selection(change):
+    percent = {**BTC_PERCENT_PRICE, **change}
+    percent = {key: value for key, value in percent.items() if value is not None}
+    with pytest.raises(SafetyError):
+        market_with(percent)
 
 
 @pytest.mark.parametrize("down,up", [("1", "1.05"), ("0.95", "1"), ("0", "1.05"), ("x", "1.05")])
@@ -201,6 +258,20 @@ def test_marketable_order_signs_limit_ioc_with_consistent_price(connected, reduc
     result = client.submit_offline(intent)
     assert result["status"] == "EXPIRED" and result["type"] == "LIMIT"
     assert client.reconcile_account(market.symbol).open_orders == []
+
+
+@pytest.mark.parametrize("index_price", [None, "0", "-1", "abc", ""])
+def test_missing_or_non_positive_index_price_fails_before_signing(
+    connected, monkeypatch, index_price
+):
+    client, _, wallet, market = connected
+    premium = {key: value for key, value in PREMIUM_INDEX.items() if key != "indexPrice"}
+    if index_price is not None:
+        premium["indexPrice"] = index_price
+    monkeypatch.setattr("bond_perpdex_client.offline.PREMIUM_INDEX", premium)
+    with pytest.raises(SafetyError, match="no positive indexPrice"):
+        client.prepare_marketable_order(wallet, market, "BUY", Decimal("0.002"))
+    assert not client._nonces
 
 
 def test_default_prepare_order_request_keeps_post_only_fields(connected):

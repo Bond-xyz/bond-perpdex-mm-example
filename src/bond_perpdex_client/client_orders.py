@@ -29,7 +29,7 @@ from .signing import (
     encode_expiration,
 )
 
-# Conservative fallback until exchangeInfo advertises PERCENT_PRICE(_BY_SIDE).
+# Conservative fallback when exchangeInfo advertises no PERCENT_PRICE filter.
 DEFAULT_FAIR_PRICE_BAND_BPS = 300
 # POST_ONLY rests; LIMIT/GTC may fill on entry; IOC/FOK may already be terminal.
 _IMMEDIATE = frozenset({"NEW", "PARTIALLY_FILLED", "FILLED", "EXPIRED", "CANCELED"})
@@ -42,12 +42,21 @@ ACKNOWLEDGED_STATUSES = {
 
 
 def fair_price_band(
-    market: Market, side: Side, band_bps: int = DEFAULT_FAIR_PRICE_BAND_BPS
+    market: Market, band_bps: int = DEFAULT_FAIR_PRICE_BAND_BPS, *, crossing: bool = True
 ) -> PriceBand:
-    """Return the advertised exchangeInfo band for ``side``, else ``index * (1 +/- bps)``."""
-    advertised = market.bid_band if side == "BUY" else market.ask_band
-    if advertised is not None:
-        return advertised
+    """Return the inclusive band an order must satisfy, as index-price multipliers.
+
+    A crossing (marketable) order uses the PERCENT_PRICE execution band, intersected
+    with the resting band it must also satisfy; a resting order uses the resting band.
+    Without execution fields both use the resting band; without a filter, ``band_bps``.
+    """
+    resting, execution = market.resting_band, market.execution_band
+    if crossing and execution is not None:
+        if resting is None:
+            return execution
+        return PriceBand(max(resting.down, execution.down), min(resting.up, execution.up))
+    if resting is not None:
+        return resting
     if type(band_bps) is not int or not 0 < band_bps < 10_000:
         raise SafetyError("Fair-price band must be 1-9999 basis points")
     fraction = Decimal(band_bps) / 10_000
@@ -62,9 +71,10 @@ def marketable_limit_price(
     worst_price: Decimal | None = None,
     band_bps: int = DEFAULT_FAIR_PRICE_BAND_BPS,
 ) -> Decimal:
-    """Tick-aligned LIMIT/IOC price bounded by ``worst_price`` and the fair-price band.
+    """Tick-aligned LIMIT/IOC price bounded by ``worst_price`` and the execution band.
 
     BUY: floor-to-tick(min(worst, index * up)); SELL: ceil-to-tick(max(worst, index * down)).
+    See ``fair_price_band`` for the execution, resting and configured band fallback.
     Without ``worst_price`` the band edge is the slippage bound. A worst price on the
     far side of the band cannot be admitted and is rejected rather than moved.
     """
@@ -76,7 +86,7 @@ def marketable_limit_price(
         not isinstance(worst_price, Decimal) or not worst_price.is_finite() or worst_price <= 0
     ):
         raise SafetyError("Worst acceptable price must be a positive Decimal")
-    band = fair_price_band(market, side, band_bps)
+    band = fair_price_band(market, band_bps, crossing=True)
     with localcontext() as ctx:
         ctx.prec = 80
         lower, upper = index_price * band.down, index_price * band.up
@@ -201,7 +211,7 @@ class OrderCommands:
         Reads public ``premiumIndex`` for ``indexPrice`` unless ``index_price`` is given.
         """
         if index_price is None:
-            index_price = decimal(str(self.premium_index(market.symbol)["indexPrice"]))
+            index_price = self.index_price(market.symbol)
         price = marketable_limit_price(
             market, side, index_price, worst_price=worst_price, band_bps=band_bps
         )
