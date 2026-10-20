@@ -55,6 +55,12 @@ def _rpc(
     raise SafetyError("Too many private events before subscription acknowledgement")
 
 
+# Venue `x` values. NEW confirms acceptance before any fill; AMENDMENT reports
+# an in-place price/quantity change; EXPIRED ends an immediate order with
+# quantity left unfilled. Anything else fails closed.
+EXECUTION_TRANSITIONS = frozenset({"NEW", "TRADE", "AMENDMENT", "CANCELED", "EXPIRED", "REJECTED"})
+
+
 def _event(frame: Json, subscription_id: int) -> Json:
     if type(frame.get("subscriptionId")) is not int or frame["subscriptionId"] != subscription_id:
         raise SafetyError("Private event belongs to a different subscription")
@@ -92,7 +98,7 @@ def _event(frame: Json, subscription_id: int) -> Json:
             decimal(event[key])
     elif kind == "executionReport":
         uuid.UUID(event["i"])
-        if event.get("x") not in {"TRADE", "CANCELED", "REJECTED"}:
+        if event.get("x") not in EXECUTION_TRANSITIONS:
             raise SafetyError("Unsupported execution transition")
         for key in ("q", "p", "l", "z", "L", "Z", "Y"):
             if key in event:
