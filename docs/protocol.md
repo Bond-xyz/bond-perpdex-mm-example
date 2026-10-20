@@ -158,11 +158,11 @@ by its string `id`; the result supplies `subscriptionId`. Events instead have
 that race the acknowledgement and validates their subscription ID. Event variants:
 
 - `executionReport`: `e`, `E`, global `I`, symbol `s`, order UUID `i`, transition
-  `x` (`NEW`/`TRADE`/`CANCELED`/`EXPIRED`/`REJECTED`), status `X`, and source
-  quantity/price fields. `NEW` confirms an accepted order before any fill it
-  takes; `EXPIRED` ends an IOC/FOK order that took no fill (a partly filled one
-  reports `X=EXPIRED` on its last `TRADE`). Venues that predate `NEW`/`EXPIRED`
-  simply never send them.
+  `x` (`NEW`/`TRADE`/`AMENDMENT`/`CANCELED`/`EXPIRED`/`REJECTED`), status `X`,
+  and source quantity/price fields. `NEW` confirms an accepted order before any
+  fill it takes; `AMENDMENT` carries an in-place price/quantity change with the
+  unchanged status; `EXPIRED` ends an IOC/FOK order with quantity left unfilled,
+  after any fills it took. Venues that predate these values never send them.
 - `positionUpdate`: `e`, `E`, `I`, **camelCase** `eventId`, `accountNonce`,
   `positionAmt`, `virtualQuoteBalance`, `isolatedMargin`, `reservedMargin`,
   `perpWalletQuoteBalance`, plus `symbol` and `leverage`; `user_id` is not on wire.

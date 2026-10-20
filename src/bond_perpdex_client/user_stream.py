@@ -55,9 +55,10 @@ def _rpc(
     raise SafetyError("Too many private events before subscription acknowledgement")
 
 
-# Venue `x` values. NEW confirms acceptance before any fill; EXPIRED ends an
-# immediate order that took no fill. Anything else fails closed.
-EXECUTION_TRANSITIONS = frozenset({"NEW", "TRADE", "CANCELED", "EXPIRED", "REJECTED"})
+# Venue `x` values. NEW confirms acceptance before any fill; AMENDMENT reports
+# an in-place price/quantity change; EXPIRED ends an immediate order with
+# quantity left unfilled. Anything else fails closed.
+EXECUTION_TRANSITIONS = frozenset({"NEW", "TRADE", "AMENDMENT", "CANCELED", "EXPIRED", "REJECTED"})
 
 
 def _event(frame: Json, subscription_id: int) -> Json:
