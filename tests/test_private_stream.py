@@ -260,6 +260,31 @@ def test_private_stream_bounds_fail_before_connect(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    ("transition", "status"),
+    [
+        ("NEW", "NEW"),
+        ("TRADE", "PARTIALLY_FILLED"),
+        ("CANCELED", "CANCELED"),
+        ("EXPIRED", "EXPIRED"),
+        ("REJECTED", "REJECTED"),
+    ],
+)
+def test_every_order_lifecycle_transition_is_accepted(monkeypatch, transition, status):
+    event = {**EXECUTION, "x": transition, "X": status}
+    client, _, _ = setup_stream(monkeypatch, [{"events": [event]}])
+    result = list(client.user_events(max_events=1, max_reconnects=0))
+    assert [message.event for message in result if message.kind == "event"] == [event]
+
+
+def test_unknown_execution_transition_fails_closed(monkeypatch):
+    event = {**EXECUTION, "x": "AMENDMENT"}
+    client, _, calls = setup_stream(monkeypatch, [{"events": [event]}])
+    with pytest.raises(SafetyError, match="Unsupported execution transition"):
+        list(client.user_events(max_events=1, max_reconnects=0))
+    assert len(calls) == 1 and client.stream_requires_reconciliation
+
+
+@pytest.mark.parametrize(
     "event",
     [
         {"e": "ACCOUNT_UPDATE", "E": NOW_MS},
