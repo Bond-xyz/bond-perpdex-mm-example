@@ -98,7 +98,7 @@ from decimal import Decimal
 from bond_perpdex_client import Quote, read_endpoint_time
 
 market = client.market("BTCUSDCPERP")
-endpoint_time = read_endpoint_time(verified_galileo_rpc_url, client.signing_registry)
+endpoint_time = read_endpoint_time(None, client.signing_registry)  # public Galileo RPC
 intent = client.prepare_order(wallet, market,
     Quote("BUY", operator_price, operator_quantity), endpoint_time=endpoint_time)
 ack = client.submit_order(intent)
@@ -106,7 +106,8 @@ cancel_ack = client.cancel_order(market, ack["orderId"])
 terminal = client.query_order(market.symbol, order_id=ack["orderId"])
 ```
 
-Supply operator-selected Decimal price/quantity and a verified Galileo RPC URL.
+Supply operator-selected Decimal price/quantity. `read_endpoint_time(None, ...)`
+uses the public Galileo RPC `https://evmrpc-testnet.0g.ai`; pass your own URL to override.
 Use fresh market data and review testnet identity/collateral before executing.
 `prepare_order()` signs but does not submit; `submit_order()` performs signed REST
 position/open-order reads immediately before the one POST. It rejects stale
@@ -116,6 +117,18 @@ Defaults target one active market and a dedicated single-writer subaccount.
 Existing orders from other processes are not safe to share with this example.
 These non-atomic projection reads are conservative checks, not a margin guarantee.
 Orders can fill before cancellation; a cancel acknowledgement does not undo fills.
+
+Signed MARKET orders are unsupported. For an immediate order, sign LIMIT/IOC at
+the worst acceptable price, optionally reduce-only:
+
+```python
+intent = client.prepare_marketable_order(wallet, market, "SELL", Decimal("0.002"),
+    worst_price=Decimal("64000"), reduce_only=True, endpoint_time=endpoint_time)
+ack = client.submit_order(intent)  # IOC/FOK may acknowledge FILLED or EXPIRED
+```
+
+It reads `GET /fapi/v1/premiumIndex` and clamps the tick-aligned price inside the
+`PERCENT_PRICE` execution band around `indexPrice`; see [order modes and limits](oems-integration.md#signed-order-modes-prices-and-limits).
 
 An ordinary single-cancel response **can omit `status`**. The sample client
 returns that response unchanged and records the UUID in
@@ -216,9 +229,14 @@ The implemented signing sequence is:
    market VirtualBook. There are no hardcoded live signing-address defaults. Use `read_endpoint_time` before live order preparation.
    Price uses exact X9 then X18 conversion; base quantity uses precision 8 and X18.
    Sells have negative signed amount. Integers in the envelope are decimal strings.
-   POST_ONLY/GTC sets `expiration = (3 << 62) | expiry_seconds`; no reduce-only bit.
+   `expiration` packs expiry seconds in bits 0–57, reserved zero bits 58–60,
+   reduce-only bit 61 (IOC/FOK only) and the mode in bits 62–63: `0` LIMIT/GTC,
+   `1` LIMIT/IOC, `2` LIMIT/FOK, `3` POST_ONLY/GTC (`encode_expiration`). The default
+   POST_ONLY/GTC is `(3 << 62) | expiry_seconds`. Request `type`, `timeInForce` and
+   `reduceOnly` must match. Top-level `price` must equal `priceX18 / 1e18` exactly.
    Use `expiry_seconds = max(client_wall_time, endpoint_time) + 60`. Ingress also
-   checks wall time, and Endpoint time can lag between settlement batches.
+   checks wall time, and Endpoint time can lag between settlement batches. Expiry
+   ends a resting order; amendment keeps it, so extend by cancel and new order.
    Signatures are low-s secp256k1, 65 bytes, `v` 27/28. All four hash evidence fields
    are transported.
 4. Put that envelope in compact `signedOrder` JSON. Sort request field names and
@@ -265,9 +283,10 @@ caller-supplied orders. Strategy rounding goes outward to the tick.
   unattended market making.
 - **Supported surface:** signed REST placement/cancel-one, signed private
   subscriptions and WebSocket cancel-all are implemented. A side-effect-free
-  helper builds order.place frames. Other order types, amendments, deposits,
-  transfers and withdrawals are outside this example. POST_ONLY/GTC is not
-  reduce-only. The offline venue does not simulate matching, margin, liquidation,
+  helper builds order.place frames. Signed modes are LIMIT/GTC, LIMIT/IOC,
+  LIMIT/FOK and POST_ONLY/GTC; reduce-only requires IOC or FOK. Signed MARKET,
+  trigger orders, amendments, deposits, transfers and withdrawals are outside
+  this example. The supervised runner places POST_ONLY/GTC only. The offline venue does not simulate matching, margin, liquidation,
   funding, fees or settlement.
 - **Deployment identity:** no historical address table is a live fallback. Load
   public signing context and filters from exchangeInfo, then read Endpoint time.
@@ -284,8 +303,8 @@ make offline
 ```
 
 Tests forbid sockets and DNS at the fixture boundary. They exercise source
-EIP-712 hashes/recovery and exact form bytes, both signature layers, post-only
-flags, decimal precision, nonce bounds/reuse, testnet and credential guards,
+EIP-712 hashes/recovery and exact form bytes, both signature layers, every signed
+order mode and reduce-only flag, execution/resting price-band clamping, decimal precision, nonce bounds/reuse, testnet and credential guards,
 HTTP/WS transport mocks, redirects/errors without retries, depth freshness/gaps,
 inventory limits, lost submit/cancel acknowledgements, session expiry, and cleanup.
 HTTP authentication/account/place/cancel-one and WebSocket subscription/cancel-all

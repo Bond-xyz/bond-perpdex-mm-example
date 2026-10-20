@@ -10,6 +10,10 @@ from websockets.sync.client import ClientConnection, connect
 
 from .models import SUPPORTED_SYMBOLS, Json, PreparedRequest, SafetyError, TestnetConfig
 
+PUBLIC_PATHS = frozenset(
+    {"/fapi/v1/time", "/fapi/v1/exchangeInfo", "/fapi/v1/depth", "/fapi/v1/premiumIndex"}
+)
+
 
 class Transport(Protocol):
     offline: bool
@@ -30,7 +34,7 @@ class TestnetReadOnlyTransport:
     def request(self, request: PreparedRequest) -> object:
         self.config.validate()
         parsed = urlsplit(request.path)
-        allowed = {"/fapi/v1/time", "/fapi/v1/exchangeInfo", "/fapi/v1/depth"}
+        allowed = PUBLIC_PATHS
         if (
             request.method != "GET"
             or request.body
@@ -47,6 +51,11 @@ class TestnetReadOnlyTransport:
                 raise SafetyError("Unsupported depth parameters")
             if len(params["symbol"]) != 1 or params["symbol"][0] not in SUPPORTED_SYMBOLS:
                 raise SafetyError("Unsupported depth market")
+        elif parsed.path == "/fapi/v1/premiumIndex":
+            if set(params) != {"symbol"} or len(params["symbol"]) != 1:
+                raise SafetyError("Unsupported premiumIndex parameters")
+            if params["symbol"][0] not in SUPPORTED_SYMBOLS:
+                raise SafetyError("Unsupported premiumIndex market")
         elif params:
             raise SafetyError("Unexpected public query parameters")
         return self._http(request)
@@ -118,7 +127,7 @@ class TestnetTransport(TestnetReadOnlyTransport):
     def request(self, request: PreparedRequest) -> object:
         self.config.validate()
         parsed = urlsplit(request.path)
-        if parsed.path in {"/fapi/v1/time", "/fapi/v1/exchangeInfo", "/fapi/v1/depth"}:
+        if parsed.path in PUBLIC_PATHS:
             return super().request(request)
         if not self.private_enabled or parsed.scheme or parsed.netloc or parsed.fragment:
             raise SafetyError("Private testnet I/O is not explicitly enabled or path is invalid")

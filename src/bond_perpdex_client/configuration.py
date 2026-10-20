@@ -11,6 +11,7 @@ from pathlib import Path
 from .credentials import _read_private
 from .models import (
     CHAIN_ID,
+    GALILEO_RPC_URL,
     HTTP_URL,
     SUPPORTED_SYMBOLS,
     WS_API_URL,
@@ -106,10 +107,10 @@ SETTINGS = (
     ),
     Setting(
         "BOND_GALILEO_RPC_URL",
-        "",
+        GALILEO_RPC_URL,
         "Signing context",
         "chain",
-        "Verified HTTPS Galileo RPC for chain identity and Endpoint time; required for trade.",
+        "HTTPS Galileo RPC for chain identity and Endpoint.getTime(); blank uses the public RPC.",
         True,
     ),
     Setting(
@@ -362,8 +363,10 @@ class Settings:
     def redacted_json(self) -> str:
         return json.dumps(
             {
+                # A secret setting equal to its public default (the public RPC) is not secret.
                 setting.name: ("<set>" if self.values[setting.name] else "<unset>")
                 if setting.secret
+                and not (setting.default and self.values[setting.name] == setting.default)
                 else self.values[setting.name]
                 for setting in SETTINGS
             },

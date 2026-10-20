@@ -7,6 +7,7 @@ import re
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Literal
 from urllib.parse import quote_plus
 
 from cryptography.hazmat.primitives import serialization
@@ -25,6 +26,59 @@ ORDER_FIELDS = [
     {"name": "expiration", "type": "uint64"},
     {"name": "nonce", "type": "uint64"},
 ]
+
+OrderType = Literal["LIMIT", "POST_ONLY"]
+TimeInForce = Literal["GTC", "IOC", "FOK"]
+# Signed ``expiration`` (uint64): bits 0-57 expiry Unix seconds, bits 58-60 reserved
+# (zero), bit 61 reduce-only, bits 62-63 order mode.
+EXPIRY_MASK = (1 << 58) - 1
+RESERVED_MASK = 0b111 << 58
+REDUCE_ONLY_BIT = 1 << 61
+ORDER_MODES: dict[tuple[str, str], int] = {
+    ("LIMIT", "GTC"): 0,
+    ("LIMIT", "IOC"): 1,
+    ("LIMIT", "FOK"): 2,
+    ("POST_ONLY", "GTC"): 3,
+}
+
+
+def encode_expiration(
+    order_type: OrderType, time_in_force: TimeInForce, reduce_only: bool, expires_at: int
+) -> int:
+    """Pack the signed order mode, reduce-only flag and expiry seconds into one uint64.
+
+    The request ``type``, ``timeInForce`` and ``reduceOnly`` fields must equal these
+    signed bits. Signed MARKET orders are unsupported: send LIMIT/IOC at the worst
+    acceptable price instead.
+    """
+    mode = ORDER_MODES.get((order_type, time_in_force))
+    if mode is None:
+        raise SafetyError(
+            "Signed orders support LIMIT/GTC, LIMIT/IOC, LIMIT/FOK and POST_ONLY/GTC; "
+            "use LIMIT/IOC at the worst acceptable price instead of MARKET"
+        )
+    if type(reduce_only) is not bool:
+        raise SafetyError("reduce_only must be a boolean")
+    if reduce_only and time_in_force not in {"IOC", "FOK"}:
+        raise SafetyError("Reduce-only is valid only with IOC or FOK")
+    if type(expires_at) is not int or not 0 < expires_at <= EXPIRY_MASK:
+        raise SafetyError("Expiration must fit the low 58 timestamp bits")
+    return (mode << 62) | (REDUCE_ONLY_BIT if reduce_only else 0) | expires_at
+
+
+def decode_expiration(expiration: int) -> tuple[OrderType, TimeInForce, bool, int]:
+    """Return ``(order_type, time_in_force, reduce_only, expires_at)`` or fail closed."""
+    if type(expiration) is not int or not 0 <= expiration < 2**64:
+        raise SafetyError("Signed expiration must be a uint64")
+    if expiration & RESERVED_MASK:
+        raise SafetyError("Signed expiration reserved bits 58-60 must be zero")
+    mode = expiration >> 62
+    order_type, time_in_force = next(key for key, value in ORDER_MODES.items() if value == mode)
+    reduce_only = bool(expiration & REDUCE_ONLY_BIT)
+    expires_at = expiration & EXPIRY_MASK
+    # Re-encode to apply the same validity rules (reduce-only mode, nonzero expiry).
+    encode_expiration(order_type, time_in_force, reduce_only, expires_at)
+    return order_type, time_in_force, reduce_only, expires_at
 
 
 def compact(value: object) -> str:
@@ -122,12 +176,15 @@ class WalletSigner:
         subaccount: str,
         expires_at: int,
         nonce: int,
+        *,
+        order_type: OrderType = "POST_ONLY",
+        time_in_force: TimeInForce = "GTC",
+        reduce_only: bool = False,
     ) -> Json:
         market.validate_order(price, quantity)
         if side not in {"BUY", "SELL"} or type(nonce) is not int or not 0 < nonce < 2**64:
             raise SafetyError("Invalid side or uint64 order nonce")
-        if type(expires_at) is not int or not 0 < expires_at < 2**58:
-            raise SafetyError("Expiration must fit the low 58 timestamp bits")
+        expiration = encode_expiration(order_type, time_in_force, reduce_only, expires_at)
         domain = {
             "name": "Vertex",
             "version": "0.0.1",
@@ -139,7 +196,7 @@ class WalletSigner:
             "sender": subaccount_sender(self.address, subaccount),
             "priceX18": str(units(price, 9) * 10**9),
             "amount": str(amount if side == "BUY" else -amount),
-            "expiration": str(expires_at | (3 << 62)),
+            "expiration": str(expiration),
             "nonce": str(nonce),
         }
         signature = self._account.sign_message(typed_message(domain, order)).signature

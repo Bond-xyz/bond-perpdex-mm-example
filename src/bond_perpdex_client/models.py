@@ -12,6 +12,8 @@ HTTP_URL = "https://perpdex-testnet.bond.xyz"
 WS_URL = "wss://perpdex-testnet.bond.xyz/ws"
 WS_API_URL = "wss://perpdex-testnet.bond.xyz/ws-fapi/v1"
 CHAIN_ID = 16602
+# Public Galileo EVM RPC, used for chain identity and Endpoint.getTime() unless overridden.
+GALILEO_RPC_URL = "https://evmrpc-testnet.0g.ai"
 SUPPORTED_SYMBOLS = frozenset({"BTCUSDCPERP", "ETHUSDCPERP", "SOLUSDCPERP", "0GUSDCPERP"})
 
 
@@ -78,6 +80,41 @@ class TestnetConfig:
 
 
 @dataclass(frozen=True)
+class PriceBand:
+    """Inclusive price multipliers around the index price, e.g. 0.97 and 1.03."""
+
+    down: Decimal
+    up: Decimal
+
+    @classmethod
+    def parse(cls, down: object, up: object) -> "PriceBand":
+        band = cls(decimal(str(down)), decimal(str(up)))
+        if not 0 < band.down < 1 < band.up:
+            raise SafetyError("Invalid fair-price band multipliers")
+        return band
+
+
+def _fair_price_bands(filters: Json) -> tuple[PriceBand | None, PriceBand | None]:
+    """Read (resting, execution) bands from an advertised PERCENT_PRICE filter.
+
+    Every LIMIT order must be inside the resting band (``multiplierUp/Down``); an order
+    that crosses the book must also be inside the execution band
+    (``executionMultiplierUp/Down``). Both are measured from the index price.
+    """
+    percent = filters.get("PERCENT_PRICE")
+    if percent is None:
+        return None, None
+    if percent.get("referencePrice", "INDEX") != "INDEX":
+        raise SafetyError("Unsupported PERCENT_PRICE referencePrice; expected INDEX")
+    resting = PriceBand.parse(percent["multiplierDown"], percent["multiplierUp"])
+    up, down = percent.get("executionMultiplierUp"), percent.get("executionMultiplierDown")
+    if (up is None) != (down is None):
+        raise SafetyError("PERCENT_PRICE execution multipliers must be supplied together")
+    execution = None if up is None else PriceBand.parse(down, up)
+    return resting, execution
+
+
+@dataclass(frozen=True)
 class Market:
     symbol: str
     product_id: int
@@ -90,6 +127,8 @@ class Market:
     max_price: Decimal
     min_notional: Decimal
     base_precision: int = 8
+    resting_band: PriceBand | None = None
+    execution_band: PriceBand | None = None
 
     @classmethod
     def from_exchange_info(cls, response: Json, symbol: str, registry: SigningRegistry) -> "Market":
@@ -108,6 +147,7 @@ class Market:
             filters[key] for key in ("PRICE_FILTER", "LOT_SIZE", "MIN_NOTIONAL")
         )
         product_id, book = registry.markets[symbol]
+        resting_band, execution_band = _fair_price_bands(filters)
         market = cls(
             symbol,
             product_id,
@@ -119,6 +159,8 @@ class Market:
             decimal(price["minPrice"]),
             decimal(price["maxPrice"]),
             decimal(str(notional["notional"])),
+            resting_band=resting_band,
+            execution_band=execution_band,
         )
         if min(market.tick, market.step, market.min_quantity, market.min_notional) <= 0:
             raise SafetyError("Invalid market filters")

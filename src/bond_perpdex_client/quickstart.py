@@ -26,8 +26,8 @@ def run(settings: Settings, *, allow_live_orders: bool = False) -> None:
 
     registry = None
     if mode == "trade":
-        if not settings.values["BOND_LIMIT_PRICE"] or not settings.values["BOND_GALILEO_RPC_URL"]:
-            raise SafetyError("Trade mode requires BOND_LIMIT_PRICE and BOND_GALILEO_RPC_URL")
+        if not settings.values["BOND_LIMIT_PRICE"]:
+            raise SafetyError("Trade mode requires BOND_LIMIT_PRICE")
         if settings.values["BOND_REGISTRY_FILE"]:
             registry = SigningRegistry.from_file(settings.path("BOND_REGISTRY_FILE"))
     account = open_account(
@@ -64,7 +64,8 @@ def run(settings: Settings, *, allow_live_orders: bool = False) -> None:
             settings.positive("BOND_LIMIT_PRICE"),
             settings.positive("BOND_QUANTITY"),
         ),
-        rpc_url=settings.values["BOND_GALILEO_RPC_URL"],
+        # Blank (as in older generated .env files) selects the public Galileo RPC.
+        rpc_url=settings.values["BOND_GALILEO_RPC_URL"] or None,
         registry=registry,
     )
 

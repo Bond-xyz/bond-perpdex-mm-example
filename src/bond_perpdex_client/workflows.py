@@ -93,7 +93,7 @@ def place_and_cancel(
     symbol: str,
     quote: Quote,
     *,
-    rpc_url: str,
+    rpc_url: str | None = None,
     registry: SigningRegistry | None = None,
 ) -> Json:
     """Submit once, cancel once, then require a terminal projection; never replay."""
