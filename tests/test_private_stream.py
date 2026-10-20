@@ -264,6 +264,7 @@ def test_private_stream_bounds_fail_before_connect(monkeypatch):
     [
         ("NEW", "NEW"),
         ("TRADE", "PARTIALLY_FILLED"),
+        ("AMENDMENT", "NEW"),
         ("CANCELED", "CANCELED"),
         ("EXPIRED", "EXPIRED"),
         ("REJECTED", "REJECTED"),
@@ -277,7 +278,7 @@ def test_every_order_lifecycle_transition_is_accepted(monkeypatch, transition, s
 
 
 def test_unknown_execution_transition_fails_closed(monkeypatch):
-    event = {**EXECUTION, "x": "AMENDMENT"}
+    event = {**EXECUTION, "x": "TRADE_PREVENTION"}
     client, _, calls = setup_stream(monkeypatch, [{"events": [event]}])
     with pytest.raises(SafetyError, match="Unsupported execution transition"):
         list(client.user_events(max_events=1, max_reconnects=0))
